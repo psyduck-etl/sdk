@@ -25,6 +25,7 @@ func ListItemSpec(source *Spec, index int) *Spec {
 func MapItemSpec(source *Spec, key string) *Spec {
 	return itemSpec(source, key, cty.Type(source.Type).MapElementType())
 }
+
 func itemSpec(source *Spec, key string, baseType *cty.Type) *Spec {
 	name := strings.Join([]string{source.Name, key}, ".")
 	if baseType == nil {
