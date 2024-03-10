@@ -7,12 +7,14 @@ import (
 const EACH_MINUTE = 60_000
 
 type PipelineConfig struct {
+	StopAfter   int64 `psy:"stop-after"`
 	PerMinute   int64 `psy:"per-minute"`
 	ExitOnError bool  `psy:"exit-on-error"`
 }
 
 func specPipelineConfig() SpecMap {
 	return SpecMap{
+		"stop-after":    SpecStopAfter(0),
 		"per-minute":    SpecPerMinute(180),
 		"exit-on-error": SpecExitOnError(true),
 	}
