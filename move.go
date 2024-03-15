@@ -38,46 +38,45 @@ func ratelimit(perMinute int64) {
 }
 
 // Produce data returned from successive calls to next
-func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan []byte, errors chan error) {
-	config := mustParse(parse)
+// func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan []byte, errors chan error) {
+// 	config := mustParse(parse)
 
-	for {
-		if dataNext, more, err := next(); err != nil {
-			errors <- err
+// 	for {
+// 		if dataNext, more, err := next(); err != nil {
+// 			errors <- err
 
-			if config.ExitOnError {
-				return
-			}
-		} else { // TODO this is dumb and confusing, just exit early
-			data <- dataNext
+// 			if config.ExitOnError {
+// 				return
+// 			}
+// 		}
+// 		data <- dataNext
 
-			if !more {
-				return
-			}
-		}
-	}
-}
+// 		if !more {
+// 			return
+// 		}
+// 	}
+// }
 
 // Consume data streamed and call next on it
-func ConsumeChunk(next func([]byte) (bool, error), parse SpecParser, data chan []byte, errors chan error) {
-	config := mustParse(parse)
+// func ConsumeChunk(next func([]byte) (bool, error), parse SpecParser, data chan []byte, errors chan error) {
+// 	config := mustParse(parse)
 
-	for dataNext := range data {
-		more, err := next(dataNext)
-		if err != nil {
-			errors <- err
+// 	for dataNext := range data {
+// 		more, err := next(dataNext)
+// 		if err != nil {
+// 			errors <- err
 
-			if config.ExitOnError {
-				return
-			}
+// 			if config.ExitOnError {
+// 				return
+// 			}
 
-			continue
-		}
+// 			continue
+// 		}
 
-		if !more {
-			return
-		}
+// 		if !more {
+// 			return
+// 		}
 
-		ratelimit(config.PerMinute)
-	}
-}
+// 		ratelimit(config.PerMinute)
+// 	}
+// }
