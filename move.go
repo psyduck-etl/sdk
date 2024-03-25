@@ -34,46 +34,31 @@ func ratelimit(perMinute int) {
 }
 
 // Produce data returned from successive calls to next
-func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan []byte, errors chan error) {
-	config := mustParse(parse)
-
+func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, send chan<- []byte) error {
 	for {
-		if dataNext, more, err := next(); err != nil {
-			errors <- err
-
-			if config.ExitOnError {
-				return
-			}
-		} else { // TODO this is dumb and confusing, just exit early
-			data <- dataNext
-
-			if !more {
-				return
-			}
+		dataNext, done, err := next()
+		if err != nil {
+			return err
+		} else if done {
+			return nil
 		}
+
+		send <- dataNext
 	}
 }
 
 // Consume data streamed and call next on it
-func ConsumeChunk(next func([]byte) (bool, error), parse SpecParser, data chan []byte, errors chan error) {
+func ConsumeChunk(next func([]byte) error, parse SpecParser, recv <-chan []byte) error {
 	config := mustParse(parse)
 
-	for dataNext := range data {
-		more, err := next(dataNext)
+	for dataNext := range recv {
+		err := next(dataNext)
 		if err != nil {
-			errors <- err
-
-			if config.ExitOnError {
-				return
-			}
-
-			continue
-		}
-
-		if !more {
-			return
+			return err
 		}
 
 		ratelimit(config.PerMinute)
 	}
+
+	return nil
 }

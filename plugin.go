@@ -12,9 +12,9 @@ type Resource struct {
 	Kinds              kind
 	Name               string
 	Spec               SpecMap
-	ProvideProducer    ProducerProvider
-	ProvideConsumer    ConsumerProvider
-	ProvideTransformer TransformerProvider
+	ProvideProducer    Provider[Producer]
+	ProvideConsumer    Provider[Consumer]
+	ProvideTransformer Provider[Transformer]
 }
 
 type Plugin struct {
@@ -25,11 +25,7 @@ type Plugin struct {
 type Parser func(interface{}) error
 type SpecParser func(SpecMap, interface{}) error
 
-type Producer func() (chan []byte, chan error)
-type ProducerProvider func(Parser, SpecParser) (Producer, error)
-
-type Consumer func() (chan []byte, chan error, chan bool)
-type ConsumerProvider func(Parser, SpecParser) (Consumer, error)
-
-type Transformer func([]byte) ([]byte, error)
-type TransformerProvider func(Parser, SpecParser) (Transformer, error)
+type Provider[T any] func(Parser, SpecParser) (T, error)
+type Producer func(send chan<- []byte, errs chan<- error)
+type Consumer func(recv <-chan []byte, errs chan<- error, done chan<- struct{})
+type Transformer func(in []byte) ([]byte, error)
