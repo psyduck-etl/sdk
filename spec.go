@@ -12,7 +12,7 @@ type Spec struct {
 	Name        string
 	Description string
 	Required    bool
-	Type        Type
+	Type        cty.Type
 	Default     cty.Value
 }
 
@@ -28,7 +28,7 @@ func itemSpec(source *Spec, key string, baseType *cty.Type) *Spec {
 		Name:        name,
 		Description: source.Description,
 		Required:    source.Required,
-		Type:        Type(*baseType),
+		Type:        *baseType,
 		Default:     cty.NilVal,
 	}
 }
@@ -50,7 +50,7 @@ func PipelineSpec() SpecMap {
 		"per-minute": &Spec{
 			Name:        "per-minute",
 			Description: "target producing/consuming n items per minute ( or 0 for unrestricted )",
-			Type:        Integer,
+			Type:        cty.Number,
 			Required:    false,
 			Default:     cty.NumberIntVal(180),
 		},
