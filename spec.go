@@ -41,22 +41,18 @@ func MapItemSpec(source *Spec, key string) *Spec {
 	return itemSpec(source, key, cty.Type(source.Type).MapElementType())
 }
 
-func SpecPerMinute(value int64) *Spec {
-	return &Spec{
-		Name:        "per-minute",
-		Description: "target producing/consuming n items per minute ( or 0 for unrestricted )",
-		Type:        Integer,
-		Required:    false,
-		Default:     cty.NumberIntVal(value),
-	}
+type sdkConfig struct {
+	PerMinute uint `psy:"per-minute"`
 }
 
-func SpecExitOnError(value bool) *Spec {
-	return &Spec{
-		Name:        "exit-on-error",
-		Description: "stop producing/consuming if we encounter an error",
-		Type:        Bool,
-		Required:    false,
-		Default:     cty.BoolVal(value),
+func PipelineSpec() SpecMap {
+	return SpecMap{
+		"per-minute": &Spec{
+			Name:        "per-minute",
+			Description: "target producing/consuming n items per minute ( or 0 for unrestricted )",
+			Type:        Integer,
+			Required:    false,
+			Default:     cty.NumberIntVal(180),
+		},
 	}
 }

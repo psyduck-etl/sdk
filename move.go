@@ -4,28 +4,7 @@ import "time"
 
 const EACH_MINUTE = 60_000
 
-type PipelineConfig struct {
-	PerMinute   int  `psy:"per-minute"`
-	ExitOnError bool `psy:"exit-on-error"`
-}
-
-func specPipelineConfig() SpecMap {
-	return SpecMap{
-		"per-minute":    SpecPerMinute(180),
-		"exit-on-error": SpecExitOnError(true),
-	}
-}
-
-func mustParse(parse SpecParser) *PipelineConfig {
-	config := new(PipelineConfig)
-	if err := parse(specPipelineConfig(), config); err != nil {
-		panic(err)
-	}
-
-	return config
-}
-
-func ratelimit(perMinute int) {
+func ratelimit(perMinute uint) {
 	if perMinute == 0 {
 		return
 	}
@@ -49,7 +28,10 @@ func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, send chan
 
 // Consume data streamed and call next on it
 func ConsumeChunk(next func([]byte) error, parse SpecParser, recv <-chan []byte) error {
-	config := mustParse(parse)
+	config := new(sdkConfig)
+	if err := parse(PipelineSpec(), config); err != nil {
+		return err
+	}
 
 	for dataNext := range recv {
 		err := next(dataNext)
