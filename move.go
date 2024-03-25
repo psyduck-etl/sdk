@@ -1,8 +1,6 @@
 package sdk
 
-import (
-	"time"
-)
+import "time"
 
 const EACH_MINUTE = 60_000
 
