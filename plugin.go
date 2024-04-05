@@ -3,9 +3,9 @@ package sdk
 type kind int
 
 const (
-	PRODUCER    kind = 0b0001
-	CONSUMER    kind = 0b0010
-	TRANSFORMER kind = 0b0100
+	PRODUCER = kind(1 << iota)
+	CONSUMER
+	TRANSFORMER
 )
 
 type Resource struct {
