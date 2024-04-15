@@ -14,14 +14,12 @@ type Spec struct {
 
 type SpecMap map[string]*Spec
 
-func PipelineSpec() SpecMap {
-	return SpecMap{
-		"per-minute": &Spec{
-			Name:        "per-minute",
-			Description: "target producing/consuming n items per minute ( or 0 for unrestricted )",
-			Type:        cty.Number,
-			Required:    false,
-			Default:     cty.NumberIntVal(180),
-		},
+var (
+	SpecPerMinute = &Spec{
+		Name:        "per-minute",
+		Description: "target producing/consuming n items per minute ( or 0 for unrestricted )",
+		Type:        cty.Number,
+		Required:    false,
+		Default:     cty.NumberIntVal(180),
 	}
-}
+)
