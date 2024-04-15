@@ -13,7 +13,7 @@ func ratelimit(perMinute uint) {
 }
 
 // Produce data returned from successive calls to next
-func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, send chan<- []byte) error {
+func ProduceFrom(next func() ([]byte, bool, error), send chan<- []byte) error {
 	for {
 		dataNext, done, err := next()
 		if err != nil {
@@ -26,13 +26,12 @@ func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, send chan
 	}
 }
 
-// Consume data streamed and call next on it
-func ConsumeChunk(next func([]byte) error, parse SpecParser, recv <-chan []byte) error {
-	config := new(sdkConfig)
-	if err := parse(PipelineSpec(), config); err != nil {
-		return err
-	}
+type ConsumeIntoConfig struct {
+	PerMinute uint `psy:"per-minute"`
+}
 
+// Consume data streamed and call next on it
+func ConsumeInto(next func([]byte) error, config ConsumeIntoConfig, recv <-chan []byte) error {
 	for dataNext := range recv {
 		err := next(dataNext)
 		if err != nil {

@@ -41,10 +41,6 @@ func MapItemSpec(source *Spec, key string) *Spec {
 	return itemSpec(source, key, cty.Type(source.Type).MapElementType())
 }
 
-type sdkConfig struct {
-	PerMinute uint `psy:"per-minute"`
-}
-
 func PipelineSpec() SpecMap {
 	return SpecMap{
 		"per-minute": &Spec{
