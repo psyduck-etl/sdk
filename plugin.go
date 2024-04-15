@@ -23,9 +23,8 @@ type Plugin struct {
 }
 
 type Parser func(interface{}) error
-type SpecParser func(SpecMap, interface{}) error
 
-type Provider[T Producer | Consumer | Transformer] func(parse Parser, sparse SpecParser) (T, error)
+type Provider[T Producer | Consumer | Transformer] func(parse Parser) (T, error)
 type Producer func(send chan<- []byte, errs chan<- error)
 type Consumer func(recv <-chan []byte, errs chan<- error, done chan<- struct{})
 type Transformer func(in []byte) ([]byte, error)
