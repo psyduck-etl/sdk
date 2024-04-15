@@ -4,12 +4,13 @@ import "time"
 
 const EACH_MINUTE = 60_000
 
-func ratelimit(perMinute uint) {
+func ratelimit(perMinute uint) func() {
 	if perMinute == 0 {
-		return
+		return func() {}
 	}
 
-	time.Sleep(time.Millisecond * time.Duration(EACH_MINUTE/perMinute))
+	d := time.Millisecond * time.Duration(EACH_MINUTE/perMinute)
+	return func() { time.Sleep(d) }
 }
 
 // Produce data returned from successive calls to next
@@ -32,13 +33,14 @@ type ConsumeIntoConfig struct {
 
 // Consume data streamed and call next on it
 func ConsumeInto(next func([]byte) error, config ConsumeIntoConfig, recv <-chan []byte) error {
+	wait := ratelimit(config.PerMinute)
 	for dataNext := range recv {
 		err := next(dataNext)
 		if err != nil {
 			return err
 		}
 
-		ratelimit(config.PerMinute)
+		wait()
 	}
 
 	return nil
