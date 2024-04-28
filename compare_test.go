@@ -18,6 +18,7 @@ func TestSameBytes(t *testing.T) {
 		{[]byte{}, []byte(""), true},
 		{make([]byte, 0), []byte(""), true},
 		{[]byte{}, make([]byte, 0), true},
+		{[]byte(""), nil, true},
 	}
 
 	for _, tc := range testcases {

@@ -1,8 +1,8 @@
 package sdk
 
 func SameBytes(left, right []byte) bool {
-	if left == nil {
-		return right == nil
+	if len(left) == 0 {
+		return len(right) == 0
 	}
 
 	if right == nil || len(left) != len(right) {
