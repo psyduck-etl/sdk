@@ -1,5 +1,8 @@
 package sdk
 
+/*
+Compare contents of 2 slices of bytes
+*/
 func SameBytes(left, right []byte) bool {
 	if len(left) == 0 {
 		return len(right) == 0
