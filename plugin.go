@@ -1,15 +1,26 @@
 package sdk
 
-type kind int
+import (
+	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/function"
+)
+
+type MoverKind uint64
 
 const (
-	PRODUCER = kind(1 << iota)
+	PRODUCER = MoverKind(1 << iota)
 	CONSUMER
 	TRANSFORMER
 )
 
+type MoverDesc struct {
+	Kind     MoverKind
+	Resource string    `hcl:"resource" cty:"resource"`
+	Options  cty.Value `hcl:",remain" cty:"options"`
+}
+
 type Resource struct {
-	Kinds              kind
+	Kinds              MoverKind
 	Name               string
 	Spec               SpecMap
 	ProvideProducer    Provider[Producer]
@@ -20,6 +31,7 @@ type Resource struct {
 type Plugin struct {
 	Name      string
 	Resources []*Resource
+	Functions map[string]function.Function
 }
 
 type Parser func(interface{}) error
