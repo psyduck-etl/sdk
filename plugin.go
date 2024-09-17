@@ -1,15 +1,15 @@
 package sdk
 
-type kind int
+type MoverKind int
 
 const (
-	PRODUCER = kind(1 << iota)
+	PRODUCER = MoverKind(1 << iota)
 	CONSUMER
 	TRANSFORMER
 )
 
 type Resource struct {
-	Kinds              kind
+	Kinds              MoverKind
 	Name               string
 	Spec               SpecMap
 	ProvideProducer    Provider[Producer]
