@@ -12,8 +12,6 @@ type Spec struct {
 	Default     cty.Value
 }
 
-type SpecMap map[string]*Spec
-
 var (
 	SpecPerMinute = &Spec{
 		Name:        "per-minute",
