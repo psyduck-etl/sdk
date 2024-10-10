@@ -21,6 +21,7 @@ type Resource struct {
 	ProvideProducer    Provider[Producer]
 	ProvideConsumer    Provider[Consumer]
 	ProvideTransformer Provider[Transformer]
+	specMap            map[string]*Spec
 }
 
 type Plugin struct {
@@ -71,6 +72,17 @@ func genFunc(res *Resource) function.Function {
 		},
 		// TODO RefineResult based on spec defaults / requireds?
 	})
+}
+
+func (p *Resource) SpecMap() map[string]*Spec {
+	if p.specMap == nil {
+		p.specMap = make(map[string]*Spec, len(p.Spec))
+		for _, spec := range p.Spec {
+			p.specMap[spec.Name] = spec
+		}
+	}
+
+	return p.specMap
 }
 
 func (p *Plugin) Ctx() *hcl.EvalContext {
