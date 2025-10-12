@@ -1,0 +1,108 @@
+syntax = "proto3";
+package psyduck.rpc;
+
+option go_package = "github.com/psyduck-etl/sdk/rpc/pb";
+
+message Empty {}
+
+message Spec {
+  string name = 1;
+  string description = 2;
+  bool required = 3;
+  string type = 4; // JSON-encoded cty.Type
+  bytes default_value = 5; // JSON-encoded cty.Value
+}
+
+message Resource {
+  string name = 1;
+  repeated string kinds = 2; // PRODUCER, CONSUMER, TRANSFORMER (can have multiple)
+  repeated Spec specs = 3;
+}
+
+message PluginInfo {
+  string name = 1;
+  repeated Resource resources = 2;
+  map<string, bytes> variables = 3; // JSON-encoded cty.Values
+  map<string, string> functions = 4; // function names -> descriptions
+}
+
+message GetPluginInfoResponse {
+  PluginInfo plugin = 1;
+}
+
+message CreateResourceRequest {
+  string resource_name = 1;
+  bytes options_json = 2; // JSON-encoded configuration
+}
+
+message CreateResourceResponse {
+  string resource_id = 1;
+  bool success = 2;
+  string error = 3;
+}
+
+message Message {
+  bytes data = 1;
+  map<string, string> metadata = 2;
+  int64 timestamp = 3;
+}
+
+message ProducerStartRequest {
+  string resource_id = 1;
+}
+
+message ConsumerStartRequest {
+  string resource_id = 1;
+}
+
+message TransformerProcessRequest {
+  string resource_id = 1;
+  Message message = 2;
+}
+
+message TransformerProcessResponse {
+  Message message = 1;
+  bool success = 2;
+  string error = 3;
+}
+
+message StopRequest {
+  string resource_id = 1;
+}
+
+message StopResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message Status {
+  bool success = 1;
+  string error = 2;
+}
+
+// Main plugin service - handles plugin lifecycle and resource management
+service PluginService {
+  rpc GetPluginInfo(Empty) returns (GetPluginInfoResponse);
+  rpc CreateResource(CreateResourceRequest) returns (CreateResourceResponse);
+  rpc StopResource(StopRequest) returns (StopResponse);
+  rpc Ping(Empty) returns (Status);
+}
+
+// Producer service - handles message production
+service ProducerService {
+  rpc Start(ProducerStartRequest) returns (stream Message);
+  rpc Stop(StopRequest) returns (StopResponse);
+}
+
+// Consumer service - handles message consumption
+service ConsumerService {
+  rpc Start(ConsumerStartRequest) returns (Status);
+  rpc Send(Message) returns (Status);
+  rpc Stop(StopRequest) returns (StopResponse);
+}
+
+// Transformer service - handles message transformation
+service TransformerService {
+  rpc Process(TransformerProcessRequest) returns (TransformerProcessResponse);
+  rpc Stop(StopRequest) returns (StopResponse);
+}
