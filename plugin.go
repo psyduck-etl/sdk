@@ -15,10 +15,10 @@ type MoverKind uint64
 const (
 	// PRODUCER indicates a resource that generates data messages
 	PRODUCER = MoverKind(1 << iota)
-	
+
 	// CONSUMER indicates a resource that consumes and processes data messages
 	CONSUMER
-	
+
 	// TRANSFORMER indicates a resource that transforms data messages
 	TRANSFORMER
 )
@@ -30,22 +30,22 @@ type Resource struct {
 	// Kinds specifies what capabilities this resource provides (PRODUCER, CONSUMER, TRANSFORMER)
 	// Multiple kinds can be combined using bitwise OR: PRODUCER | TRANSFORMER
 	Kinds MoverKind
-	
+
 	// Name is the unique identifier for this resource within the plugin
 	Name string
-	
+
 	// Spec defines the configuration parameters this resource accepts
 	Spec []*Spec
-	
+
 	// ProvideProducer creates a new Producer instance if this resource supports PRODUCER
 	ProvideProducer ProviderProducer
-	
+
 	// ProvideConsumer creates a new Consumer instance if this resource supports CONSUMER
 	ProvideConsumer ProviderConsumer
-	
+
 	// ProvideTransformer creates a new Transformer instance if this resource supports TRANSFORMER
 	ProvideTransformer ProviderTransformer
-	
+
 	// specMap is a cached map for faster spec lookups by name
 	specMap map[string]*Spec
 }
@@ -56,13 +56,13 @@ type Resource struct {
 type Plugin struct {
 	// Name is the human-readable name of this plugin
 	Name string
-	
+
 	// Resources is the list of all data processing capabilities this plugin provides
 	Resources []*Resource
-	
+
 	// Variables are plugin-wide variables available in HCL configurations
 	Variables map[string]cty.Value
-	
+
 	// Functions are custom HCL functions this plugin provides
 	Functions map[string]function.Function
 }
@@ -189,7 +189,7 @@ type Producer interface {
 	// The send function may return an error if the message cannot be delivered,
 	// in which case the Producer should typically stop and return the error.
 	Start(ctx context.Context, send func([]byte) error) error
-	
+
 	// Stop attempts to gracefully stop the producer. Implementations may
 	// choose to implement this as a no-op if they rely solely on context cancellation.
 	Stop() error
@@ -205,7 +205,7 @@ type Consumer interface {
 	// The recv function may return other errors for delivery failures, which
 	// the Consumer should handle appropriately (retry, skip, or abort).
 	Consume(ctx context.Context, recv func() ([]byte, error)) error
-	
+
 	// Stop attempts to gracefully stop the consumer. Implementations may
 	// choose to implement this as a no-op if they rely solely on context cancellation.
 	Stop() error
