@@ -70,7 +70,7 @@ func TestConsumeInto(t *testing.T) {
 		close(send)
 	}()
 
-	if err := ConsumeInto(next, ConsumeIntoConfig{0}, send); err != nil {
+	if err := ConsumeInto(next, send); err != nil {
 		t.Fatal(err)
 	}
 
