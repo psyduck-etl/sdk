@@ -1,5 +1,6 @@
 package sdk
 
+import "context"
 // Kind is a bitmask of resource capabilities. A resource may advertise more
 // than one Kind by OR-ing the values together (e.g. PRODUCER|CONSUMER).
 type Kind uint64
@@ -38,8 +39,8 @@ type ResourceDescriptor struct {
 // programmer error.
 type Instance interface {
 	Kind() Kind
-	Produce(send chan<- []byte, errs chan<- error)
-	Consume(recv <-chan []byte, errs chan<- error, done chan<- struct{})
+	Produce(ctx context.Context, send chan<- []byte, errs chan<- error)
+	Consume(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{})
 	Transform(in []byte) ([]byte, error)
 	Close() error
 }
