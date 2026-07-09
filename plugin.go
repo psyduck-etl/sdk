@@ -41,6 +41,6 @@ type Instance interface {
 	Kind() Kind
 	Produce(ctx context.Context, send chan<- []byte, errs chan<- error)
 	Consume(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{})
-	Transform(in []byte) ([]byte, error)
+	Transform(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error)
 	Close() error
 }
