@@ -1,6 +1,9 @@
 package sdk
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // Resource is the closure-carrying struct plugin authors write. Each
 // non-nil Provide* field indicates a role the resource can fulfil; the
@@ -114,18 +117,18 @@ type inProcInstance struct {
 
 func (i *inProcInstance) Kind() Kind { return i.kind }
 
-func (i *inProcInstance) Produce(send chan<- []byte, errs chan<- error) {
+func (i *inProcInstance) Produce(ctx context.Context, send chan<- []byte, errs chan<- error) {
 	if i.produce == nil {
 		panic(fmt.Sprintf("sdk: resource %q bound as %s, Produce called", i.resource, kindName(i.kind)))
 	}
-	i.produce(send, errs)
+	i.produce(ctx, send, errs)
 }
 
-func (i *inProcInstance) Consume(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+func (i *inProcInstance) Consume(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 	if i.consume == nil {
 		panic(fmt.Sprintf("sdk: resource %q bound as %s, Consume called", i.resource, kindName(i.kind)))
 	}
-	i.consume(recv, errs, done)
+	i.consume(ctx, recv, errs, done)
 }
 
 func (i *inProcInstance) Transform(in []byte) ([]byte, error) {

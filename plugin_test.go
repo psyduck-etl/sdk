@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -40,13 +41,13 @@ func newTestResource() *Resource {
 			if err := parse(cfg); err != nil {
 				return nil, err
 			}
-			return func(send chan<- []byte, errs chan<- error) {
+			return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 				send <- []byte(cfg.Prefix)
 				close(send)
 			}, nil
 		},
 		ProvideConsumer: func(parse Parser) (Consumer, error) {
-			return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 				for range recv {
 				}
 				done <- struct{}{}
@@ -90,7 +91,7 @@ func TestBindHappyPath_Producer(t *testing.T) {
 	}
 	send := make(chan []byte, 1)
 	errs := make(chan error, 1)
-	inst.Produce(send, errs)
+	inst.Produce(context.Background(), send, errs)
 	got := <-send
 	if string(got) != "hi" {
 		t.Fatalf("Produce sent %q, want %q", got, "hi")
@@ -112,7 +113,7 @@ func TestBindHappyPath_Consumer(t *testing.T) {
 	recv := make(chan []byte)
 	errs := make(chan error, 1)
 	done := make(chan struct{}, 1)
-	go inst.Consume(recv, errs, done)
+	go inst.Consume(context.Background(), recv, errs, done)
 	close(recv)
 	<-done
 }
@@ -162,7 +163,7 @@ func TestBindErrors(t *testing.T) {
 		Name:  "nil-c",
 		Kinds: PRODUCER | CONSUMER,
 		ProvideProducer: func(Parser) (Producer, error) {
-			return func(send chan<- []byte, errs chan<- error) {}, nil
+			return func(ctx context.Context, send chan<- []byte, errs chan<- error) {}, nil
 		},
 		// ProvideConsumer intentionally nil despite CONSUMER in Kinds.
 	}
@@ -200,7 +201,7 @@ func TestInstancePanicsOnWrongKind(t *testing.T) {
 				t.Fatal("Consume on PRODUCER instance did not panic")
 			}
 		}()
-		inst.Consume(nil, nil, nil)
+		inst.Consume(context.Background(), nil, nil, nil)
 	}()
 
 	func() {
@@ -220,5 +221,109 @@ func TestSourceRangeString(t *testing.T) {
 	r := SourceRange{SourceName: "pipeline.psy", StartLine: 12, StartCol: 3, EndLine: 14, EndCol: 1}
 	if got := r.String(); got != "pipeline.psy:12:3-14:1" {
 		t.Fatalf("SourceRange = %q, want %q", got, "pipeline.psy:12:3-14:1")
+	}
+}
+
+func TestInstanceProducerContextCancellation(t *testing.T) {
+	// Create a resource with a producer that respects context cancellation
+	r := &Resource{
+		Name:  "cancellable-producer",
+		Kinds: PRODUCER,
+		ProvideProducer: func(Parser) (Producer, error) {
+			return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+				defer close(send)
+				for i := 0; i < 1000; i++ {
+					select {
+					case send <- []byte("data"):
+					case <-ctx.Done():
+						errs <- ctx.Err()
+						return
+					}
+				}
+			}, nil
+		},
+	}
+	p := NewInProc("pl", r)
+	inst, err := p.Bind(PRODUCER, "cancellable-producer", &stubBlock{})
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	send := make(chan []byte, 10)
+	errs := make(chan error, 1)
+
+	go func() {
+		// Receive a few items then cancel
+		for i := 0; i < 3; i++ {
+			<-send
+		}
+		cancel()
+	}()
+
+	inst.Produce(ctx, send, errs)
+
+	// Should have gotten a context.Canceled error
+	if err := <-errs; err != context.Canceled {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestInstanceConsumerContextCancellation(t *testing.T) {
+	// Create a resource with a consumer that respects context cancellation
+	r := &Resource{
+		Name:  "cancellable-consumer",
+		Kinds: CONSUMER,
+		ProvideConsumer: func(Parser) (Consumer, error) {
+			return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+				itemCount := 0
+				for {
+					select {
+					case data, ok := <-recv:
+						if !ok {
+							done <- struct{}{}
+							return
+						}
+						_ = data
+						itemCount++
+					case <-ctx.Done():
+						errs <- ctx.Err()
+						return
+					}
+				}
+			}, nil
+		},
+	}
+	p := NewInProc("pl", r)
+	inst, err := p.Bind(CONSUMER, "cancellable-consumer", &stubBlock{})
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	recv := make(chan []byte, 10)
+	errs := make(chan error, 1)
+	done := make(chan struct{}, 1)
+
+	go func() {
+		inst.Consume(ctx, recv, errs, done)
+	}()
+
+	// Send a few items
+	for i := 0; i < 3; i++ {
+		recv <- []byte("data")
+	}
+
+	// Cancel and verify consumer exits with context.Canceled
+	cancel()
+
+	// Should get context.Canceled on errs, not done (which means natural close)
+	select {
+	case err := <-errs:
+		if err != context.Canceled {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	case <-done:
+		t.Fatal("consumer closed normally instead of exiting on context cancellation")
 	}
 }
