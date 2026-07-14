@@ -128,6 +128,50 @@ func TestJSONBlockDecodeIntegralFloat(t *testing.T) {
 	}
 }
 
+func TestJSONBlockDecodeEmbedded(t *testing.T) {
+	// Shared config fragments are embedded as unexported struct types
+	// (field promotion); their fields must decode from the same flat
+	// object, and a psy:"-" on the embed opts the whole fragment out.
+	type auth struct {
+		Token string `psy:"auth-token"`
+	}
+	type Nested struct {
+		Deep string `psy:"deep"`
+	}
+	type cfg struct {
+		auth
+		*Nested
+		Feed string `psy:"feed"`
+	}
+
+	got := &cfg{}
+	data := []byte(`{"auth-token": "tok", "deep": "d", "feed": "collective"}`)
+	if err := NewJSONBlock(SourceRange{}, data).Decode(got); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if got.Token != "tok" {
+		t.Errorf("Token = %q, want %q (embedded unexported struct)", got.Token, "tok")
+	}
+	if got.Nested == nil || got.Deep != "d" {
+		t.Errorf("Nested = %+v, want Deep=%q (embedded exported pointer)", got.Nested, "d")
+	}
+	if got.Feed != "collective" {
+		t.Errorf("Feed = %q, want %q", got.Feed, "collective")
+	}
+
+	type optedOut struct {
+		auth `psy:"-"`
+		Feed string `psy:"feed"`
+	}
+	skip := &optedOut{}
+	if err := NewJSONBlock(SourceRange{}, data).Decode(skip); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if skip.Token != "" {
+		t.Errorf("Token = %q, want empty (psy:\"-\" embed)", skip.Token)
+	}
+}
+
 func TestJSONBlockDecodeNonPointer(t *testing.T) {
 	if err := DecodeJSONTagged([]byte(`{}`), psyConfig{}); err == nil {
 		t.Fatal("DecodeJSONTagged: non-pointer destination should error")
