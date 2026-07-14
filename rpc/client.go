@@ -103,12 +103,14 @@ func (i *instance) Produce(ctx context.Context, send chan<- []byte, errs chan<- 
 		}
 
 		switch e := ev.Event.(type) {
-		case *proto.Event_Data:
-			select {
-			case send <- e.Data:
-			case <-ctx.Done():
-				report(ctx, errs, ctx.Err())
-				return
+		case *proto.Event_Batch:
+			for _, item := range e.Batch.Items {
+				select {
+				case send <- item:
+				case <-ctx.Done():
+					report(ctx, errs, ctx.Err())
+					return
+				}
 			}
 		case *proto.Event_Error:
 			report(ctx, errs, errors.New(e.Error))
@@ -134,16 +136,17 @@ func (i *instance) Consume(ctx context.Context, recv <-chan []byte, errs chan<- 
 		report(ctx, errs, grpcErr(err))
 		return
 	}
-	if err := stream.Send(&proto.ConsumeChunk{Chunk: &proto.ConsumeChunk_Instance{Instance: i.handle}}); err != nil {
+	if err := stream.Send(&proto.DataChunk{Chunk: &proto.DataChunk_Instance{Instance: i.handle}}); err != nil {
 		report(ctx, errs, grpcErr(err))
 		return
 	}
 
-	// Writer: recv -> stream. A Send failure means the remote side is
-	// gone or finished early; keep draining recv so the host's fan-out
-	// never blocks on a finished consumer, exactly like a local consumer
-	// that stops processing but keeps reading. The goroutine always winds
-	// down: the host closes recv (or cancels ctx) at pipeline teardown.
+	// Writer: recv -> stream, batching whatever is already pending. A Send
+	// failure means the remote side is gone or finished early; keep
+	// draining recv so the host's fan-out never blocks on a finished
+	// consumer, exactly like a local consumer that stops processing but
+	// keeps reading. The goroutine always winds down: the host closes recv
+	// (or cancels ctx) at pipeline teardown.
 	go func() {
 		for {
 			select {
@@ -152,7 +155,8 @@ func (i *instance) Consume(ctx context.Context, recv <-chan []byte, errs chan<- 
 					stream.CloseSend() //nolint:errcheck // remote teardown wins
 					return
 				}
-				if err := stream.Send(&proto.ConsumeChunk{Chunk: &proto.ConsumeChunk_Data{Data: b}}); err != nil {
+				batch := &proto.Batch{Items: gather(b, recv)}
+				if err := stream.Send(&proto.DataChunk{Chunk: &proto.DataChunk_Batch{Batch: batch}}); err != nil {
 					for range recv { //nolint:revive // drain until host closes recv
 					}
 					return
@@ -198,26 +202,87 @@ func (i *instance) Consume(ctx context.Context, recv <-chan []byte, errs chan<- 
 	}
 }
 
-func (i *instance) Transform(in []byte) ([]byte, error) {
+// Transform relays the sdk's stage contract across the stream: in is
+// pumped to the remote transformer, whose out/errs events flow back,
+// pipelined rather than request/response. Mirroring well-formed
+// transformers, out is always closed on the way out; a transport failure
+// is reported on errs first. in's close crosses as a half-close, giving
+// the remote stage its flush cue before the stream ends.
+func (i *instance) Transform(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
 	if i.kind != sdk.TRANSFORMER {
 		panic(fmt.Sprintf("sdk/rpc: resource %q bound as kind %d, Transform called", i.resource, i.kind))
 	}
+	defer close(out)
 
-	resp, err := i.driver.Transform(context.Background(), &proto.TransformRequest{Instance: i.handle, Data: in})
+	stream, err := i.driver.Transform(ctx)
 	if err != nil {
-		return nil, grpcErr(err)
+		report(ctx, errs, grpcErr(err))
+		return
 	}
-	if resp.Error != "" {
-		return nil, errors.New(resp.Error)
+	if err := stream.Send(&proto.DataChunk{Chunk: &proto.DataChunk_Instance{Instance: i.handle}}); err != nil {
+		report(ctx, errs, grpcErr(err))
+		return
 	}
-	if resp.Drop {
-		return nil, nil
+
+	// Writer: in -> stream, batching whatever is already pending and
+	// half-closing when in closes. A Send failure means the remote stage
+	// is gone; keep draining in so the upstream stage never blocks,
+	// exactly like a local transformer that stops processing but keeps
+	// reading. The goroutine always winds down: the host closes in (or
+	// cancels ctx) at pipeline teardown.
+	go func() {
+		for {
+			select {
+			case b, ok := <-in:
+				if !ok {
+					stream.CloseSend() //nolint:errcheck // remote teardown wins
+					return
+				}
+				batch := &proto.Batch{Items: gather(b, in)}
+				if err := stream.Send(&proto.DataChunk{Chunk: &proto.DataChunk_Batch{Batch: batch}}); err != nil {
+					for range in { //nolint:revive // drain until host closes in
+					}
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	for {
+		ev, err := stream.Recv()
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			// Host-side cancellation surfaces here as a status error;
+			// transformers report ctx.Err() in that spot, so match them.
+			if ctx.Err() != nil {
+				report(ctx, errs, ctx.Err())
+			} else {
+				report(ctx, errs, grpcErr(err))
+			}
+			return
+		}
+
+		switch e := ev.Event.(type) {
+		case *proto.Event_Batch:
+			for _, item := range e.Batch.Items {
+				select {
+				case out <- item:
+				case <-ctx.Done():
+					report(ctx, errs, ctx.Err())
+					return
+				}
+			}
+		case *proto.Event_Error:
+			report(ctx, errs, errors.New(e.Error))
+		default:
+			report(ctx, errs, fmt.Errorf("transform: unexpected event %T", ev.Event))
+			return
+		}
 	}
-	if resp.Data == nil {
-		// Distinguish "empty output" from the (nil, nil) drop signal.
-		return []byte{}, nil
-	}
-	return resp.Data, nil
 }
 
 func (i *instance) Close() error {

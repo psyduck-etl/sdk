@@ -22,6 +22,45 @@ func ProduceFrom(ctx context.Context, next func() ([]byte, bool, error), send ch
 	}
 }
 
+// Map lifts a one-to-one mapping function onto the Transformer stage
+// contract: fn is applied to each input item and its output emitted
+// downstream. Returning (nil, nil) emits nothing — the item is filtered
+// out. An error is reported on errs and the item dropped; the stage keeps
+// running. Map closes out on the way out and respects ctx cancellation,
+// so fn is all a simple stateless transformer needs to provide.
+func Map(fn func([]byte) ([]byte, error)) Transformer {
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case data, ok := <-in:
+				if !ok {
+					return
+				}
+				mapped, err := fn(data)
+				if err != nil {
+					select {
+					case errs <- err:
+					case <-ctx.Done():
+						return
+					}
+					continue
+				}
+				if mapped == nil {
+					continue
+				}
+				select {
+				case out <- mapped:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
 // ConsumeInto reads from recv until it closes, invoking next on each
 // item. Rate limiting is a host concern and is no longer performed here.
 // ConsumeInto respects ctx cancellation.

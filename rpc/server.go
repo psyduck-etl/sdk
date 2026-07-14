@@ -64,7 +64,7 @@ func (s *driverServer) Bind(ctx context.Context, req *proto.BindRequest) (*proto
 }
 
 // Produce runs the instance's producer, forwarding its send/errs channels
-// onto the stream as data/error events. The stream ends cleanly when the
+// onto the stream as batch/error events. The stream ends cleanly when the
 // producer has both closed send and returned; host-side cancellation
 // arrives as stream-context cancellation, which the producer sees as
 // ctx.Done.
@@ -75,7 +75,7 @@ func (s *driverServer) Produce(req *proto.ProduceRequest, stream proto.Driver_Pr
 	}
 
 	ctx := stream.Context()
-	send := make(chan []byte)
+	send := make(chan []byte, batchItems)
 	errs := make(chan error)
 	returned := make(chan struct{})
 
@@ -84,21 +84,30 @@ func (s *driverServer) Produce(req *proto.ProduceRequest, stream proto.Driver_Pr
 		inst.Produce(ctx, send, errs)
 	}()
 
-	// Mux send/errs onto the stream until the producer is finished. The
-	// sdk contract makes send's close the completion signal, but a
-	// producer that returns without closing send (a bug) must not wedge
-	// the host, so the loop also ends when the producer function returns.
-	// Some producers also close errs on the way out; a closed channel is
-	// simply dropped from the select.
+	return muxEvents(ctx, stream, send, errs, returned, nil)
+}
+
+// muxEvents forwards a resource's data/errs channels onto stream as
+// batch/error events until the resource is finished. The sdk contracts
+// make data's close the completion signal, but a resource that returns
+// without closing its output channel (a bug) must not wedge the host, so
+// the mux also ends when the resource function returns. Resources that
+// close errs on the way out are tolerated: a closed channel is simply
+// dropped from the select. readErr, when non-nil, aborts the mux with a
+// stream-reader failure (nil channels never fire).
+func muxEvents(ctx context.Context, stream interface {
+	Send(*proto.Event) error
+}, data <-chan []byte, errs <-chan error, returned <-chan struct{}, readErr <-chan error) error {
 	pending := returned
-	for send != nil {
+	for data != nil {
 		select {
-		case b, ok := <-send:
+		case b, ok := <-data:
 			if !ok {
-				send = nil
+				data = nil
 				continue
 			}
-			if err := stream.Send(&proto.Event{Event: &proto.Event_Data{Data: b}}); err != nil {
+			batch := &proto.Batch{Items: gather(b, data)}
+			if err := stream.Send(&proto.Event{Event: &proto.Event_Batch{Batch: batch}}); err != nil {
 				return err
 			}
 		case e, ok := <-errs:
@@ -110,19 +119,35 @@ func (s *driverServer) Produce(req *proto.ProduceRequest, stream proto.Driver_Pr
 				return err
 			}
 		case <-pending:
-			pending = nil // producer returned; stop selecting on it
-			if send != nil {
-				// Returned without closing send: nothing more can
-				// arrive on either channel (the producer owned them).
-				send = nil
+			pending = nil // resource returned; stop selecting on it
+			// The resource's channels can gain nothing more, but data is
+			// buffered and may still hold items sent before the return —
+			// drain those, then stop selecting on data so a resource that
+			// returned without closing it (a bug) cannot wedge the host.
+			for data != nil {
+				select {
+				case b, ok := <-data:
+					if !ok {
+						data = nil
+						continue
+					}
+					batch := &proto.Batch{Items: gather(b, data)}
+					if err := stream.Send(&proto.Event{Event: &proto.Event_Batch{Batch: batch}}); err != nil {
+						return err
+					}
+				default:
+					data = nil
+				}
 			}
+		case err := <-readErr:
+			return err
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
 
-	// send is closed; the producer may still be running and reporting
-	// errors (errs is sent to strictly before the producer returns, so
+	// data is closed; the resource may still be running and reporting
+	// errors (errs is sent to strictly before the resource returns, so
 	// waiting on returned cannot miss one).
 	for {
 		select {
@@ -136,6 +161,8 @@ func (s *driverServer) Produce(req *proto.ProduceRequest, stream proto.Driver_Pr
 			}
 		case <-returned:
 			return nil
+		case err := <-readErr:
+			return err
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -153,7 +180,7 @@ func (s *driverServer) Consume(stream proto.Driver_ConsumeServer) error {
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "consume: reading instance handle: %v", err)
 	}
-	handle, ok := first.Chunk.(*proto.ConsumeChunk_Instance)
+	handle, ok := first.Chunk.(*proto.DataChunk_Instance)
 	if !ok {
 		return status.Error(codes.InvalidArgument, "consume: first chunk must carry the instance handle")
 	}
@@ -187,17 +214,19 @@ func (s *driverServer) Consume(stream proto.Driver_ConsumeServer) error {
 				readErr <- err
 				return
 			}
-			data, ok := chunk.Chunk.(*proto.ConsumeChunk_Data)
+			batch, ok := chunk.Chunk.(*proto.DataChunk_Batch)
 			if !ok {
 				readErr <- status.Error(codes.InvalidArgument, "consume: duplicate instance chunk")
 				return
 			}
-			select {
-			case recv <- data.Data:
-			case <-returned:
-				return
-			case <-ctx.Done():
-				return
+			for _, item := range batch.Batch.Items {
+				select {
+				case recv <- item:
+				case <-returned:
+					return
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}()
@@ -234,20 +263,68 @@ func (s *driverServer) Consume(stream proto.Driver_ConsumeServer) error {
 	}
 }
 
-func (s *driverServer) Transform(ctx context.Context, req *proto.TransformRequest) (*proto.TransformResponse, error) {
-	inst, err := s.lookup(req.Instance)
+// Transform runs the instance's transformer as a long-running stage:
+// inbound chunks feed its in channel, and its out/errs channels flow back
+// as batch/error events. The host half-closing its send side is the
+// transformer's in close (its cue to flush); the transformer closing out
+// ends the stream cleanly once any trailing errors have crossed.
+func (s *driverServer) Transform(stream proto.Driver_TransformServer) error {
+	first, err := stream.Recv()
 	if err != nil {
-		return nil, err
+		return status.Errorf(codes.InvalidArgument, "transform: reading instance handle: %v", err)
+	}
+	handle, ok := first.Chunk.(*proto.DataChunk_Instance)
+	if !ok {
+		return status.Error(codes.InvalidArgument, "transform: first chunk must carry the instance handle")
+	}
+	inst, err := s.lookup(handle.Instance)
+	if err != nil {
+		return err
 	}
 
-	out, terr := inst.Transform(req.Data)
-	resp := &proto.TransformResponse{Data: out}
-	if terr != nil {
-		resp.Error = terr.Error()
-	} else if out == nil {
-		resp.Drop = true
-	}
-	return resp, nil
+	ctx := stream.Context()
+	in := make(chan []byte, batchItems)
+	out := make(chan []byte, batchItems)
+	errs := make(chan error)
+	returned := make(chan struct{})
+
+	go func() {
+		defer close(returned)
+		inst.Transform(ctx, in, out, errs)
+	}()
+
+	// Reader: host chunks -> in, closing in when the host half-closes.
+	// Transformer teardown (returned) unblocks a stranded in send.
+	readErr := make(chan error, 1)
+	go func() {
+		defer close(in)
+		for {
+			chunk, err := stream.Recv()
+			if err == io.EOF {
+				return
+			}
+			if err != nil {
+				readErr <- err
+				return
+			}
+			batch, ok := chunk.Chunk.(*proto.DataChunk_Batch)
+			if !ok {
+				readErr <- status.Error(codes.InvalidArgument, "transform: duplicate instance chunk")
+				return
+			}
+			for _, item := range batch.Batch.Items {
+				select {
+				case in <- item:
+				case <-returned:
+					return
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	return muxEvents(ctx, stream, out, errs, returned, readErr)
 }
 
 func (s *driverServer) Close(ctx context.Context, req *proto.CloseRequest) (*proto.Empty, error) {
