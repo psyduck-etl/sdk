@@ -8,9 +8,17 @@ import "fmt"
 //
 // Decode's signature intentionally matches Parser so that a bound
 // block.Decode value may be passed directly to Provider closures.
+//
+// Encode renders the block's fully-evaluated attribute values as a JSON
+// object so the block can cross a process boundary (the rpc transport
+// serializes blocks with Encode on the host side and rebuilds them with
+// NewJSONBlock in the plugin process). Attribute names are the spec names
+// (the same names psy: struct tags refer to); absent values may be
+// rendered as JSON null or omitted entirely.
 type ConfigBlock interface {
 	Origin() SourceRange
 	Decode(dst any) error
+	Encode() ([]byte, error)
 }
 
 // SourceRange identifies a span of source text in a config file. It is

@@ -17,6 +17,15 @@ type stubBlock struct {
 }
 
 func (b *stubBlock) Origin() SourceRange { return b.origin }
+func (b *stubBlock) Encode() ([]byte, error) {
+	if b.err != nil {
+		return nil, b.err
+	}
+	if len(b.data) == 0 {
+		return []byte("{}"), nil
+	}
+	return b.data, nil
+}
 func (b *stubBlock) Decode(dst any) error {
 	if b.err != nil {
 		return b.err
