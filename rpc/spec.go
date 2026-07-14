@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/psyduck-etl/sdk/proto"
@@ -87,7 +88,10 @@ func specFromProto(p *proto.Spec) (*sdk.Spec, error) {
 		if err := dec.Decode(&v); err != nil {
 			return nil, fmt.Errorf("spec %s: decode default: %w", p.Name, err)
 		}
-		out.Default = nativeNumbers(v)
+		if _, err := dec.Token(); err != io.EOF {
+			return nil, fmt.Errorf("spec %s: decode default: trailing data after value", p.Name)
+		}
+		out.Default = nativeDefault(v, out)
 	}
 	return out, nil
 }
@@ -107,31 +111,73 @@ func specsFromProto(specs []*proto.Spec) ([]*sdk.Spec, error) {
 	return out, nil
 }
 
-// nativeNumbers rewrites json.Number leaves into int64/float64 so a
-// round-tripped default is an ordinary Go value.
-func nativeNumbers(v any) any {
+// nativeDefault rewrites json.Number leaves into int64/float64 so a
+// round-tripped default is an ordinary Go value. It walks the value tree
+// alongside the spec tree, so a leaf described by the spec converts to its
+// declared kind — JSON cannot tell 2.0 from 2, but TypeFloat can. Leaves
+// the spec does not describe (unmatched object keys, missing ElemType,
+// unknown Type) fall back to nativeNumber's integral-first heuristic.
+func nativeDefault(v any, s *sdk.Spec) any {
 	switch t := v.(type) {
 	case json.Number:
-		if i, err := t.Int64(); err == nil {
-			return i
-		}
-		if f, err := t.Float64(); err == nil {
-			return f
-		}
-		return t.String()
+		return nativeNumber(t, s)
 	case []any:
+		var elem *sdk.Spec
+		if s != nil {
+			elem = s.ElemType
+		}
 		for i, e := range t {
-			t[i] = nativeNumbers(e)
+			t[i] = nativeDefault(e, elem)
 		}
 		return t
 	case map[string]any:
-		for k, e := range t {
-			t[k] = nativeNumbers(e)
+		switch {
+		case s != nil && s.Type == sdk.TypeObject:
+			fields := make(map[string]*sdk.Spec, len(s.Fields))
+			for _, f := range s.Fields {
+				fields[f.Name] = f
+			}
+			for k, e := range t {
+				t[k] = nativeDefault(e, fields[k])
+			}
+		case s != nil && s.ElemType != nil:
+			for k, e := range t {
+				t[k] = nativeDefault(e, s.ElemType)
+			}
+		default:
+			for k, e := range t {
+				t[k] = nativeDefault(e, nil)
+			}
 		}
 		return t
 	default:
 		return v
 	}
+}
+
+// nativeNumber converts one number leaf, honoring the spec's declared type
+// when there is one and it fits; otherwise integral-first, degrading to
+// float64 and finally the digit string (overflow-safe).
+func nativeNumber(n json.Number, s *sdk.Spec) any {
+	if s != nil {
+		switch s.Type {
+		case sdk.TypeFloat:
+			if f, err := n.Float64(); err == nil {
+				return f
+			}
+		case sdk.TypeInt:
+			if i, err := n.Int64(); err == nil {
+				return i
+			}
+		}
+	}
+	if i, err := n.Int64(); err == nil {
+		return i
+	}
+	if f, err := n.Float64(); err == nil {
+		return f
+	}
+	return n.String()
 }
 
 func descriptorsToProto(descs []sdk.ResourceDescriptor) ([]*proto.ResourceDescriptor, error) {
