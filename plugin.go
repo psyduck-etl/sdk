@@ -1,6 +1,7 @@
 package sdk
 
 import "context"
+
 // Kind is a bitmask of resource capabilities. A resource may advertise more
 // than one Kind by OR-ing the values together (e.g. PRODUCER|CONSUMER).
 type Kind uint64

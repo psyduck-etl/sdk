@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 // stubBlock is a minimal ConfigBlock backed by a JSON blob. Decode
@@ -399,12 +400,14 @@ func TestInstanceTransformerContextCancellation(t *testing.T) {
 	in <- []byte("data")
 	cancel()
 
+	// Nobody reads out, so the transformer's only way forward after the
+	// cancel is its ctx.Done branch — the error must arrive on errs.
 	select {
 	case err := <-errs:
 		if err != context.Canceled {
 			t.Fatalf("expected context.Canceled, got %v", err)
 		}
-	case <-out:
-		t.Fatal("did not expect out to be readable after cancellation with no reader")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for cancellation error")
 	}
 }
