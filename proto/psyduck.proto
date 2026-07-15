@@ -6,11 +6,15 @@
 //   sdk.Plugin.Bind            <->  Driver.Bind   (returns an instance handle)
 //   sdk.Instance.Produce       <->  Driver.Produce   (server stream)
 //   sdk.Instance.Consume       <->  Driver.Consume   (bidirectional stream)
-//   sdk.Instance.Transform     <->  Driver.Transform (unary)
+//   sdk.Instance.Transform     <->  Driver.Transform (bidirectional stream)
 //   sdk.Instance.Close         <->  Driver.Close
 //
 // Data items are opaque bytes, exactly as they are on the sdk's channel
-// surface. Config crosses as the JSON object ConfigBlock.Encode produces.
+// surface, framed in Batches — one gRPC message carries whatever items
+// were pending when the sender flushed, so message overhead amortizes
+// under load without adding latency when idle. Batching is an rpc-layer
+// concern; the sdk channel surface stays strictly one item at a time.
+// Config crosses as the JSON object ConfigBlock.Encode produces.
 syntax = "proto3";
 
 package psyduck.v1;
@@ -71,44 +75,40 @@ message ProduceRequest {
   uint64 instance = 1;
 }
 
-// Event is one occurrence on a producer's or consumer's output: a data
-// item (produce only), an error report, or a consumer's done signal.
-// Errors are events, not stream failures — a resource can report errors
-// and keep running, exactly like sending on the sdk's errs channel.
+// Batch is a flush of consecutive data items. Order within and across
+// batches is the order they were sent on the source channel; batch
+// boundaries carry no meaning of their own.
+message Batch {
+  repeated bytes items = 1;
+}
+
+// Event is one occurrence on a resource's output stream: a batch of data
+// items (produce and transform), an error report, or a consumer's done
+// signal. Errors are events, not stream failures — a resource can report
+// errors and keep running, exactly like sending on the sdk's errs channel.
 //
 // done exists because the sdk contract distinguishes a consumer that
 // signaled done (normal completion) from one that returned without doing
-// so (aborted); a bare stream end cannot carry that distinction.
+// so (aborted); a bare stream end cannot carry that distinction. Produce
+// and transform streams need no equivalent: closing the send/out channel
+// is their completion signal, which crosses as a clean stream end.
 message Event {
   oneof event {
-    bytes data = 1;
+    Batch batch = 1;
     string error = 2;
     bool done = 3;
   }
 }
 
-// ConsumeChunk is one host->plugin message on a consume stream. The first
-// chunk must carry the instance handle; every following chunk carries one
-// data item.
-message ConsumeChunk {
+// DataChunk is one host->plugin message on a consume or transform stream.
+// The first chunk must carry the instance handle; every following chunk
+// carries a batch of data items. The host half-closing its send side is
+// the instance's recv/in channel close.
+message DataChunk {
   oneof chunk {
     uint64 instance = 1;
-    bytes data = 2;
+    Batch batch = 2;
   }
-}
-
-message TransformRequest {
-  uint64 instance = 1;
-  bytes data = 2;
-}
-
-// TransformResponse relays the transformer's (out, err) pair. drop marks
-// the (nil, nil) case — "silently drop this message" — which proto bytes
-// cannot otherwise distinguish from an empty output.
-message TransformResponse {
-  bytes data = 1;
-  bool drop = 2;
-  string error = 3;
 }
 
 message CloseRequest {
@@ -122,7 +122,7 @@ service Driver {
   rpc Schema(Empty) returns (SchemaResponse);
   rpc Bind(BindRequest) returns (BindResponse);
 
-  // Produce streams the instance's output. Data and error events are
+  // Produce streams the instance's output. Batch and error events are
   // interleaved; the stream ends cleanly when the producer closes its send
   // channel. Host cancellation propagates as stream context cancellation.
   rpc Produce(ProduceRequest) returns (stream Event);
@@ -131,9 +131,15 @@ service Driver {
   // when the feed is exhausted (the sdk's recv close); the plugin ends the
   // stream when the consumer signals done. Error events flow back while
   // the stream is live.
-  rpc Consume(stream ConsumeChunk) returns (stream Event);
+  rpc Consume(stream DataChunk) returns (stream Event);
 
-  rpc Transform(TransformRequest) returns (TransformResponse);
+  // Transform is a long-running stage: the host feeds batches in and the
+  // transformer's output batches and errors flow back, interleaved and
+  // pipelined — nothing about the exchange is request/response. Input
+  // exhaustion (host half-close) is the transformer's in close, after
+  // which a stateful transformer flushes; the transformer closing out ends
+  // the stream cleanly. Filtering is simply never emitting an item.
+  rpc Transform(stream DataChunk) returns (stream Event);
 
   // Close releases the instance handle and calls its Close.
   rpc Close(CloseRequest) returns (Empty);

@@ -117,7 +117,7 @@ func testPlugin() sdk.Plugin {
 				if err := parse(&cfg); err != nil {
 					return nil, err
 				}
-				return func(in []byte) ([]byte, error) {
+				return sdk.Map(func(in []byte) ([]byte, error) {
 					switch string(in) {
 					case "drop-me":
 						return nil, nil
@@ -127,6 +127,26 @@ func testPlugin() sdk.Plugin {
 						return []byte{}, nil
 					}
 					return append(in, cfg.Suffix...), nil
+				}), nil
+			},
+		},
+		&sdk.Resource{
+			// tally aggregates: it consumes its whole input and flushes a
+			// single count once in closes — proving the host's half-close
+			// crosses as the flush cue and a trailing emit still delivers.
+			Name:  "tally",
+			Kinds: sdk.TRANSFORMER,
+			ProvideTransformer: func(parse sdk.Parser) (sdk.Transformer, error) {
+				return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+					defer close(out)
+					count := 0
+					for range in {
+						count++
+					}
+					select {
+					case out <- fmt.Appendf(nil, "%d", count):
+					case <-ctx.Done():
+					}
 				}, nil
 			},
 		},
@@ -169,8 +189,8 @@ func TestSchemaRoundTrip(t *testing.T) {
 	for _, r := range p.Resources() {
 		byName[r.Name] = r
 	}
-	if len(byName) != 4 {
-		t.Fatalf("Resources = %d, want 4", len(byName))
+	if len(byName) != 5 {
+		t.Fatalf("Resources = %d, want 5", len(byName))
 	}
 
 	emit := byName["emit"]
@@ -384,24 +404,94 @@ func TestTransformRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
-
-	out, err := inst.Transform([]byte("hello"))
-	if err != nil || string(out) != "hello?" {
-		t.Errorf("Transform = %q, %v", out, err)
+	if inst.Kind() != sdk.TRANSFORMER {
+		t.Errorf("Kind = %d", inst.Kind())
 	}
 
-	out, err = inst.Transform([]byte("drop-me"))
-	if err != nil || out != nil {
-		t.Errorf("drop: Transform = %#v, %v — want nil, nil", out, err)
+	in := make(chan []byte)
+	out := make(chan []byte)
+	errs := make(chan error, 4)
+	go inst.Transform(t.Context(), in, out, errs)
+
+	go func() {
+		for _, s := range []string{"hello", "drop-me", "empty-me", "fail-me", "world"} {
+			in <- []byte(s)
+		}
+		close(in)
+	}()
+
+	var got []string
+	deadline := time.After(5 * time.Second)
+Loop:
+	for {
+		select {
+		case b, ok := <-out:
+			if !ok {
+				break Loop
+			}
+			got = append(got, string(b))
+		case <-deadline:
+			t.Fatalf("timeout after %d messages", len(got))
+		}
 	}
 
-	out, err = inst.Transform([]byte("empty-me"))
-	if err != nil || out == nil || len(out) != 0 {
-		t.Errorf("empty: Transform = %#v, %v — want non-nil empty", out, err)
+	// drop-me is filtered (never emitted); empty-me crosses as an empty
+	// item; fail-me becomes an error event, not an output.
+	want := []string{"hello?", "", "world?"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("message %d = %q, want %q", i, got[i], want[i])
+		}
 	}
 
-	if _, err = inst.Transform([]byte("fail-me")); err == nil || err.Error() != "transform failed" {
-		t.Errorf("fail: err = %v", err)
+	select {
+	case err := <-errs:
+		if err == nil || err.Error() != "transform failed" {
+			t.Errorf("error = %v, want transform failed", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for transform error")
+	}
+}
+
+func TestTransformFlush(t *testing.T) {
+	p := dispense(t)
+
+	inst, err := p.Bind(sdk.TRANSFORMER, "tally", block(t, `{}`))
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+
+	in := make(chan []byte)
+	out := make(chan []byte)
+	errs := make(chan error, 1)
+	go inst.Transform(t.Context(), in, out, errs)
+
+	go func() {
+		for range 7 {
+			in <- []byte("x")
+		}
+		close(in)
+	}()
+
+	select {
+	case b, ok := <-out:
+		if !ok || string(b) != "7" {
+			t.Errorf("flush = %q (ok=%v), want 7", b, ok)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for flush")
+	}
+	select {
+	case _, ok := <-out:
+		if ok {
+			t.Error("expected out closed after flush")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for out close")
 	}
 }
 
@@ -415,9 +505,25 @@ func TestCloseInvalidatesHandle(t *testing.T) {
 	if err := inst.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if _, err := inst.Transform([]byte("x")); err == nil {
-		t.Error("Transform after Close should error")
+
+	// Transform after Close: the handle lookup fails plugin-side; the
+	// failure surfaces on errs and out still closes.
+	in := make(chan []byte)
+	out := make(chan []byte)
+	errs := make(chan error, 1)
+	go inst.Transform(t.Context(), in, out, errs)
+	select {
+	case err := <-errs:
+		if err == nil || !strings.Contains(err.Error(), "no instance") {
+			t.Errorf("Transform after Close: err = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for stale-handle error")
 	}
+	if _, ok := <-out; ok {
+		t.Error("expected out closed after stale-handle failure")
+	}
+
 	if err := inst.Close(); err == nil {
 		t.Error("double Close should error (handle already released)")
 	}

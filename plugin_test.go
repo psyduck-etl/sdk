@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 // stubBlock is a minimal ConfigBlock backed by a JSON blob. Decode
@@ -63,7 +64,16 @@ func newTestResource() *Resource {
 			}, nil
 		},
 		ProvideTransformer: func(parse Parser) (Transformer, error) {
-			return func(in []byte) ([]byte, error) { return in, nil }, nil
+			return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+				defer close(out)
+				for data := range in {
+					select {
+					case out <- data:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}, nil
 		},
 	}
 }
@@ -136,9 +146,18 @@ func TestBindHappyPath_Transformer(t *testing.T) {
 	if inst.Kind() != TRANSFORMER {
 		t.Fatalf("Kind = %d, want TRANSFORMER", inst.Kind())
 	}
-	out, err := inst.Transform([]byte("x"))
-	if err != nil || string(out) != "x" {
-		t.Fatalf("Transform = %q,%v; want %q,nil", out, err, "x")
+	in := make(chan []byte, 1)
+	out := make(chan []byte, 1)
+	errs := make(chan error, 1)
+	in <- []byte("x")
+	close(in)
+	inst.Transform(context.Background(), in, out, errs)
+	got, ok := <-out
+	if !ok || string(got) != "x" {
+		t.Fatalf("Transform out = %q,%v; want %q,true", got, ok, "x")
+	}
+	if _, ok := <-out; ok {
+		t.Fatal("expected out to be closed")
 	}
 }
 
@@ -219,7 +238,7 @@ func TestInstancePanicsOnWrongKind(t *testing.T) {
 				t.Fatal("Transform on PRODUCER instance did not panic")
 			}
 		}()
-		_, _ = inst.Transform(nil)
+		inst.Transform(context.Background(), nil, nil, nil)
 	}()
 }
 
@@ -334,5 +353,61 @@ func TestInstanceConsumerContextCancellation(t *testing.T) {
 		}
 	case <-done:
 		t.Fatal("consumer closed normally instead of exiting on context cancellation")
+	}
+}
+
+func TestInstanceTransformerContextCancellation(t *testing.T) {
+	// Create a resource with a transformer that respects context cancellation
+	r := &Resource{
+		Name:  "cancellable-transformer",
+		Kinds: TRANSFORMER,
+		ProvideTransformer: func(Parser) (Transformer, error) {
+			return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+				defer close(out)
+				for {
+					select {
+					case data, ok := <-in:
+						if !ok {
+							return
+						}
+						select {
+						case out <- data:
+						case <-ctx.Done():
+							errs <- ctx.Err()
+							return
+						}
+					case <-ctx.Done():
+						errs <- ctx.Err()
+						return
+					}
+				}
+			}, nil
+		},
+	}
+	p := NewInProc("pl", r)
+	inst, err := p.Bind(TRANSFORMER, "cancellable-transformer", &stubBlock{})
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	in := make(chan []byte, 10)
+	out := make(chan []byte)
+	errs := make(chan error, 1)
+
+	go inst.Transform(ctx, in, out, errs)
+
+	in <- []byte("data")
+	cancel()
+
+	// Nobody reads out, so the transformer's only way forward after the
+	// cancel is its ctx.Done branch — the error must arrive on errs.
+	select {
+	case err := <-errs:
+		if err != context.Canceled {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for cancellation error")
 	}
 }

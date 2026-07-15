@@ -67,5 +67,34 @@ type Producer func(ctx context.Context, send chan<- []byte, errs chan<- error)
 //	}
 type Consumer func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{})
 
-// Transformer maps one input datum to one output datum.
-type Transformer func(in []byte) ([]byte, error)
+// Transformer reads data from in and writes results to out. It reports
+// errors on errs. It is responsible for closing out when done — typically
+// when in is closed and any buffered state has been flushed.
+//
+// Transformer receives a context and must respect its cancellation by
+// selecting on ctx.Done() alongside channel sends to avoid goroutine leaks
+// when the host abandons the transformer mid-run. A Transformer must not
+// close errs.
+//
+// To filter a message out, simply do not write it to out. A stateful
+// Transformer (e.g. batching or windowing) should flush any buffered output
+// once in is closed, before returning.
+//
+// Example:
+//
+//	func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+//	    defer close(out)
+//	    for data := range in {
+//	        transformed, err := transformData(data)
+//	        if err != nil {
+//	            errs <- err
+//	            continue
+//	        }
+//	        select {
+//	        case out <- transformed:
+//	        case <-ctx.Done():
+//	            return
+//	        }
+//	    }
+//	}
+type Transformer func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error)

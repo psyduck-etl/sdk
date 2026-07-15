@@ -199,11 +199,26 @@ func assignJSON(v any, rv reflect.Value, path string) error {
 		t := rv.Type()
 		for i := range t.NumField() {
 			field := t.Field(i)
-			if !field.IsExported() {
-				continue
-			}
 			tag := field.Tag.Get("psy")
 			if tag == "-" {
+				continue
+			}
+			// Embedded structs without their own psy tag flatten, mirroring
+			// Go field promotion: their fields decode from this same object.
+			// The embedded type itself may be unexported (the usual shape for
+			// shared config fragments) — its promoted exported fields are
+			// still settable through it.
+			if field.Anonymous && tag == "" {
+				ft := field.Type
+				if ft.Kind() == reflect.Struct ||
+					(ft.Kind() == reflect.Pointer && ft.Elem().Kind() == reflect.Struct && field.IsExported()) {
+					if err := assignJSON(v, rv.Field(i), path); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+			if !field.IsExported() {
 				continue
 			}
 			e, ok := lookupField(m, tag, field.Name)
