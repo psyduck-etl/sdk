@@ -1,0 +1,146 @@
+// psyduck.proto is the wire contract between a psyduck host and a plugin
+// subprocess, spoken over hashicorp/go-plugin's gRPC transport. It mirrors
+// the sdk surface one-to-one:
+//
+//   sdk.Plugin.Name/Resources  <->  Driver.Schema
+//   sdk.Plugin.Bind            <->  Driver.Bind   (returns an instance handle)
+//   sdk.Instance.Produce       <->  Driver.Produce   (server stream)
+//   sdk.Instance.Consume       <->  Driver.Consume   (bidirectional stream)
+//   sdk.Instance.Transform     <->  Driver.Transform (bidirectional stream)
+//   sdk.Instance.Close         <->  Driver.Close
+//
+// Data items are opaque bytes, exactly as they are on the sdk's channel
+// surface, framed in Batches — one gRPC message carries whatever items
+// were pending when the sender flushed, so message overhead amortizes
+// under load without adding latency when idle. Batching is an rpc-layer
+// concern; the sdk channel surface stays strictly one item at a time.
+// Config crosses as the JSON object ConfigBlock.Encode produces.
+syntax = "proto3";
+
+package psyduck.v1;
+
+option go_package = "github.com/psyduck-etl/sdk/proto";
+
+message Empty {}
+
+// Spec mirrors sdk.Spec. type holds the sdk.SpecType enum value; the
+// default value crosses JSON-encoded (empty = no default).
+message Spec {
+  string name = 1;
+  string description = 2;
+  bool required = 3;
+  uint32 type = 4;
+  Spec elem_type = 5;
+  repeated Spec fields = 6;
+  bytes default_json = 7;
+}
+
+// ResourceDescriptor mirrors sdk.ResourceDescriptor; kinds is the sdk.Kind
+// bitmask.
+message ResourceDescriptor {
+  string name = 1;
+  uint64 kinds = 2;
+  repeated Spec spec = 3;
+}
+
+message SchemaResponse {
+  string name = 1;
+  repeated ResourceDescriptor resources = 2;
+}
+
+// SourceRange mirrors sdk.SourceRange so plugin-side diagnostics can point
+// at the config block that configured the instance.
+message SourceRange {
+  string source_name = 1;
+  int64 start_line = 2;
+  int64 start_col = 3;
+  int64 end_line = 4;
+  int64 end_col = 5;
+}
+
+message BindRequest {
+  uint64 kind = 1;      // single sdk.Kind bit
+  string resource = 2;
+  bytes config = 3;     // JSON object from ConfigBlock.Encode
+  SourceRange origin = 4;
+}
+
+// BindResponse carries the plugin-side handle all instance RPCs refer to.
+// Bind failures surface as gRPC status errors.
+message BindResponse {
+  uint64 instance = 1;
+}
+
+message ProduceRequest {
+  uint64 instance = 1;
+}
+
+// Batch is a flush of consecutive data items. Order within and across
+// batches is the order they were sent on the source channel; batch
+// boundaries carry no meaning of their own.
+message Batch {
+  repeated bytes items = 1;
+}
+
+// Event is one occurrence on a resource's output stream: a batch of data
+// items (produce and transform), an error report, or a consumer's done
+// signal. Errors are events, not stream failures — a resource can report
+// errors and keep running, exactly like sending on the sdk's errs channel.
+//
+// done exists because the sdk contract distinguishes a consumer that
+// signaled done (normal completion) from one that returned without doing
+// so (aborted); a bare stream end cannot carry that distinction. Produce
+// and transform streams need no equivalent: closing the send/out channel
+// is their completion signal, which crosses as a clean stream end.
+message Event {
+  oneof event {
+    Batch batch = 1;
+    string error = 2;
+    bool done = 3;
+  }
+}
+
+// DataChunk is one host->plugin message on a consume or transform stream.
+// The first chunk must carry the instance handle; every following chunk
+// carries a batch of data items. The host half-closing its send side is
+// the instance's recv/in channel close.
+message DataChunk {
+  oneof chunk {
+    uint64 instance = 1;
+    Batch batch = 2;
+  }
+}
+
+message CloseRequest {
+  uint64 instance = 1;
+}
+
+// Driver is the service a plugin subprocess serves. The host is the gRPC
+// client for every RPC; data still flows plugin->host for Produce and
+// host->plugin for Consume via streaming.
+service Driver {
+  rpc Schema(Empty) returns (SchemaResponse);
+  rpc Bind(BindRequest) returns (BindResponse);
+
+  // Produce streams the instance's output. Batch and error events are
+  // interleaved; the stream ends cleanly when the producer closes its send
+  // channel. Host cancellation propagates as stream context cancellation.
+  rpc Produce(ProduceRequest) returns (stream Event);
+
+  // Consume feeds the instance data. The host half-closes its send side
+  // when the feed is exhausted (the sdk's recv close); the plugin ends the
+  // stream when the consumer signals done. Error events flow back while
+  // the stream is live.
+  rpc Consume(stream DataChunk) returns (stream Event);
+
+  // Transform is a long-running stage: the host feeds batches in and the
+  // transformer's output batches and errors flow back, interleaved and
+  // pipelined — nothing about the exchange is request/response. Input
+  // exhaustion (host half-close) is the transformer's in close, after
+  // which a stateful transformer flushes; the transformer closing out ends
+  // the stream cleanly. Filtering is simply never emitting an item.
+  rpc Transform(stream DataChunk) returns (stream Event);
+
+  // Close releases the instance handle and calls its Close.
+  rpc Close(CloseRequest) returns (Empty);
+}

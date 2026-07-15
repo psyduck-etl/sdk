@@ -131,11 +131,11 @@ func (i *inProcInstance) Consume(ctx context.Context, recv <-chan []byte, errs c
 	i.consume(ctx, recv, errs, done)
 }
 
-func (i *inProcInstance) Transform(in []byte) ([]byte, error) {
+func (i *inProcInstance) Transform(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
 	if i.transform == nil {
 		panic(fmt.Sprintf("sdk: resource %q bound as %s, Transform called", i.resource, kindName(i.kind)))
 	}
-	return i.transform(in)
+	i.transform(ctx, in, out, errs)
 }
 
 func (i *inProcInstance) Close() error { return nil }

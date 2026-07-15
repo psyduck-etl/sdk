@@ -1,0 +1,28 @@
+#!/bin/sh
+# Regenerate protobuf code when psyduck.proto is part of the commit, and
+# refuse the commit if the staged generated files are stale. Wired up via
+# `git config core.hooksPath .githooks` (nix develop does this for you).
+set -e
+
+# Nothing proto-related staged: stay out of the way.
+if git diff --cached --quiet -- proto/psyduck.proto; then
+	exit 0
+fi
+
+for tool in protoc protoc-gen-go protoc-gen-go-grpc; do
+	if ! command -v "$tool" >/dev/null 2>&1; then
+		echo "pre-commit: proto/psyduck.proto changed but $tool is not on PATH (try nix develop)" >&2
+		exit 1
+	fi
+done
+
+go generate ./proto
+
+# Codegen output that differs from the index means the staged .pb.go files
+# don't match the staged .proto — surface it rather than silently amending.
+if ! git diff --quiet -- proto/; then
+	echo "pre-commit: regenerated protobuf code differs from what is staged:" >&2
+	git --no-pager diff --stat -- proto/ >&2
+	echo "pre-commit: review the changes, \`git add proto\`, and commit again" >&2
+	exit 1
+fi
