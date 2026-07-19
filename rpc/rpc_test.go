@@ -218,10 +218,10 @@ func TestSchemaRoundTrip(t *testing.T) {
 func TestBindErrors(t *testing.T) {
 	p := dispense(t)
 
-	if _, err := p.Bind(sdk.PRODUCER, "no-such", block(t, `{}`)); err == nil || !strings.Contains(err.Error(), "no-such") {
+	if _, err := p.Bind(context.Background(), sdk.PRODUCER, "no-such", block(t, `{}`)); err == nil || !strings.Contains(err.Error(), "no-such") {
 		t.Errorf("Bind unknown resource: %v", err)
 	}
-	if _, err := p.Bind(sdk.CONSUMER, "emit", block(t, `{}`)); err == nil || !strings.Contains(err.Error(), "consumer") {
+	if _, err := p.Bind(context.Background(), sdk.CONSUMER, "emit", block(t, `{}`)); err == nil || !strings.Contains(err.Error(), "consumer") {
 		t.Errorf("Bind wrong kind: %v", err)
 	}
 }
@@ -229,7 +229,7 @@ func TestBindErrors(t *testing.T) {
 func TestProduceRoundTrip(t *testing.T) {
 	p := dispense(t)
 
-	inst, err := p.Bind(sdk.PRODUCER, "emit", block(t, `{"value": "msg", "count": 3, "fail-with": "boom"}`))
+	inst, err := p.Bind(context.Background(), sdk.PRODUCER, "emit", block(t, `{"value": "msg", "count": 3, "fail-with": "boom"}`))
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -279,7 +279,7 @@ Loop:
 func TestProduceCancel(t *testing.T) {
 	p := dispense(t)
 
-	inst, err := p.Bind(sdk.PRODUCER, "forever", block(t, `{}`))
+	inst, err := p.Bind(context.Background(), sdk.PRODUCER, "forever", block(t, `{}`))
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestProduceCancel(t *testing.T) {
 func TestConsumeRoundTrip(t *testing.T) {
 	p := dispense(t)
 
-	inst, err := p.Bind(sdk.CONSUMER, "collect", block(t, `{}`))
+	inst, err := p.Bind(context.Background(), sdk.CONSUMER, "collect", block(t, `{}`))
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestConsumeRoundTrip(t *testing.T) {
 func TestConsumeAbort(t *testing.T) {
 	p := dispense(t)
 
-	inst, err := p.Bind(sdk.CONSUMER, "collect", block(t, `{"abort-on": "poison"}`))
+	inst, err := p.Bind(context.Background(), sdk.CONSUMER, "collect", block(t, `{"abort-on": "poison"}`))
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestConsumeAbort(t *testing.T) {
 func TestTransformRoundTrip(t *testing.T) {
 	p := dispense(t)
 
-	inst, err := p.Bind(sdk.TRANSFORMER, "suffix", block(t, `{"suffix": "?"}`))
+	inst, err := p.Bind(context.Background(), sdk.TRANSFORMER, "suffix", block(t, `{"suffix": "?"}`))
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -460,7 +460,7 @@ Loop:
 func TestTransformFlush(t *testing.T) {
 	p := dispense(t)
 
-	inst, err := p.Bind(sdk.TRANSFORMER, "tally", block(t, `{}`))
+	inst, err := p.Bind(context.Background(), sdk.TRANSFORMER, "tally", block(t, `{}`))
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestTransformFlush(t *testing.T) {
 func TestCloseInvalidatesHandle(t *testing.T) {
 	p := dispense(t)
 
-	inst, err := p.Bind(sdk.TRANSFORMER, "suffix", block(t, `{}`))
+	inst, err := p.Bind(context.Background(), sdk.TRANSFORMER, "suffix", block(t, `{}`))
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -532,7 +532,7 @@ func TestCloseInvalidatesHandle(t *testing.T) {
 func TestKindMismatchPanics(t *testing.T) {
 	p := dispense(t)
 
-	inst, err := p.Bind(sdk.TRANSFORMER, "suffix", block(t, `{}`))
+	inst, err := p.Bind(context.Background(), sdk.TRANSFORMER, "suffix", block(t, `{}`))
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}

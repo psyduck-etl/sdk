@@ -8,13 +8,20 @@ import (
 // Resource is the closure-carrying struct plugin authors write. Each
 // non-nil Provide* field indicates a role the resource can fulfil; the
 // Kinds bitmask must be consistent with which Provide* fields are set.
+//
+// For each role, a plugin author may set either the context-less Provider
+// (backward-compat) or the context-aware ProviderContext (preferred for
+// cancellable setup work). If both are set, ProviderContext takes precedence.
 type Resource struct {
-	Name               string
-	Kinds              Kind
-	Spec               []*Spec
-	ProvideProducer    Provider[Producer]
-	ProvideConsumer    Provider[Consumer]
-	ProvideTransformer Provider[Transformer]
+	Name                      string
+	Kinds                     Kind
+	Spec                      []*Spec
+	ProvideProducer           Provider[Producer]
+	ProvideConsumer           Provider[Consumer]
+	ProvideTransformer        Provider[Transformer]
+	ProvideProducerContext    ProviderContext[Producer]
+	ProvideConsumerContext    ProviderContext[Consumer]
+	ProvideTransformerContext ProviderContext[Transformer]
 }
 
 // NewInProc assembles a Plugin from a name and a set of Resources. It
@@ -43,7 +50,7 @@ func (p *inProcPlugin) Resources() []ResourceDescriptor {
 	return out
 }
 
-func (p *inProcPlugin) Bind(kind Kind, resource string, block ConfigBlock) (Instance, error) {
+func (p *inProcPlugin) Bind(ctx context.Context, kind Kind, resource string, block ConfigBlock) (Instance, error) {
 	r, ok := p.byName[resource]
 	if !ok {
 		return nil, fmt.Errorf("plugin %q: unknown resource %q", p.name, resource)
@@ -60,32 +67,53 @@ func (p *inProcPlugin) Bind(kind Kind, resource string, block ConfigBlock) (Inst
 	inst := &inProcInstance{resource: r.Name, kind: kind}
 	switch kind {
 	case PRODUCER:
-		if r.ProvideProducer == nil {
+		if r.ProvideProducerContext != nil {
+			fn, err := r.ProvideProducerContext(ctx, block.Decode)
+			if err != nil {
+				return nil, fmt.Errorf("plugin %q resource %q: build producer: %w", p.name, resource, err)
+			}
+			inst.produce = fn
+		} else if r.ProvideProducer != nil {
+			fn, err := r.ProvideProducer(block.Decode)
+			if err != nil {
+				return nil, fmt.Errorf("plugin %q resource %q: build producer: %w", p.name, resource, err)
+			}
+			inst.produce = fn
+		} else {
 			return nil, fmt.Errorf("plugin %q resource %q: no producer provider registered", p.name, resource)
 		}
-		fn, err := r.ProvideProducer(block.Decode)
-		if err != nil {
-			return nil, fmt.Errorf("plugin %q resource %q: build producer: %w", p.name, resource, err)
-		}
-		inst.produce = fn
 	case CONSUMER:
-		if r.ProvideConsumer == nil {
+		if r.ProvideConsumerContext != nil {
+			fn, err := r.ProvideConsumerContext(ctx, block.Decode)
+			if err != nil {
+				return nil, fmt.Errorf("plugin %q resource %q: build consumer: %w", p.name, resource, err)
+			}
+			inst.consume = fn
+		} else if r.ProvideConsumer != nil {
+			fn, err := r.ProvideConsumer(block.Decode)
+			if err != nil {
+				return nil, fmt.Errorf("plugin %q resource %q: build consumer: %w", p.name, resource, err)
+			}
+			inst.consume = fn
+		} else {
 			return nil, fmt.Errorf("plugin %q resource %q: no consumer provider registered", p.name, resource)
 		}
-		fn, err := r.ProvideConsumer(block.Decode)
-		if err != nil {
-			return nil, fmt.Errorf("plugin %q resource %q: build consumer: %w", p.name, resource, err)
-		}
-		inst.consume = fn
 	case TRANSFORMER:
-		if r.ProvideTransformer == nil {
+		if r.ProvideTransformerContext != nil {
+			fn, err := r.ProvideTransformerContext(ctx, block.Decode)
+			if err != nil {
+				return nil, fmt.Errorf("plugin %q resource %q: build transformer: %w", p.name, resource, err)
+			}
+			inst.transform = fn
+		} else if r.ProvideTransformer != nil {
+			fn, err := r.ProvideTransformer(block.Decode)
+			if err != nil {
+				return nil, fmt.Errorf("plugin %q resource %q: build transformer: %w", p.name, resource, err)
+			}
+			inst.transform = fn
+		} else {
 			return nil, fmt.Errorf("plugin %q resource %q: no transformer provider registered", p.name, resource)
 		}
-		fn, err := r.ProvideTransformer(block.Decode)
-		if err != nil {
-			return nil, fmt.Errorf("plugin %q resource %q: build transformer: %w", p.name, resource, err)
-		}
-		inst.transform = fn
 	}
 	return inst, nil
 }

@@ -38,13 +38,13 @@ func (c *client) Name() string { return c.name }
 
 func (c *client) Resources() []sdk.ResourceDescriptor { return c.resources }
 
-func (c *client) Bind(kind sdk.Kind, resource string, block sdk.ConfigBlock) (sdk.Instance, error) {
+func (c *client) Bind(ctx context.Context, kind sdk.Kind, resource string, block sdk.ConfigBlock) (sdk.Instance, error) {
 	config, err := block.Encode()
 	if err != nil {
 		return nil, fmt.Errorf("plugin %q resource %q: encode config: %w", c.name, resource, err)
 	}
 
-	resp, err := c.driver.Bind(context.Background(), &proto.BindRequest{
+	resp, err := c.driver.Bind(ctx, &proto.BindRequest{
 		Kind:     uint64(kind),
 		Resource: resource,
 		Config:   config,

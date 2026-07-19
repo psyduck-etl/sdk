@@ -49,7 +49,7 @@ func (s *driverServer) Schema(ctx context.Context, _ *proto.Empty) (*proto.Schem
 
 func (s *driverServer) Bind(ctx context.Context, req *proto.BindRequest) (*proto.BindResponse, error) {
 	block := sdk.NewJSONBlock(rangeFromProto(req.Origin), req.Config)
-	inst, err := s.impl.Bind(sdk.Kind(req.Kind), req.Resource, block)
+	inst, err := s.impl.Bind(ctx, sdk.Kind(req.Kind), req.Resource, block)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}

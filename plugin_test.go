@@ -101,7 +101,7 @@ func TestNewInProcNameAndResources(t *testing.T) {
 func TestBindHappyPath_Producer(t *testing.T) {
 	p := NewInProc("pl", newTestResource())
 	block := &stubBlock{data: []byte(`{"prefix":"hi"}`)}
-	inst, err := p.Bind(PRODUCER, "widget", block)
+	inst, err := p.Bind(context.Background(), PRODUCER, "widget", block)
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestBindHappyPath_Producer(t *testing.T) {
 
 func TestBindHappyPath_Consumer(t *testing.T) {
 	p := NewInProc("pl", newTestResource())
-	inst, err := p.Bind(CONSUMER, "widget", &stubBlock{})
+	inst, err := p.Bind(context.Background(), CONSUMER, "widget", &stubBlock{})
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestBindHappyPath_Consumer(t *testing.T) {
 
 func TestBindHappyPath_Transformer(t *testing.T) {
 	p := NewInProc("pl", newTestResource())
-	inst, err := p.Bind(TRANSFORMER, "widget", &stubBlock{})
+	inst, err := p.Bind(context.Background(), TRANSFORMER, "widget", &stubBlock{})
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -165,15 +165,15 @@ func TestBindErrors(t *testing.T) {
 	p := NewInProc("pl", newTestResource())
 	block := &stubBlock{}
 
-	if _, err := p.Bind(PRODUCER, "nope", block); err == nil {
+	if _, err := p.Bind(context.Background(), PRODUCER, "nope", block); err == nil {
 		t.Fatal("expected error for unknown resource")
 	}
 
-	if _, err := p.Bind(PRODUCER|CONSUMER, "widget", block); err == nil {
+	if _, err := p.Bind(context.Background(), PRODUCER|CONSUMER, "widget", block); err == nil {
 		t.Fatal("expected error for multi-kind Bind")
 	}
 
-	if _, err := p.Bind(Kind(0), "widget", block); err == nil {
+	if _, err := p.Bind(context.Background(), Kind(0), "widget", block); err == nil {
 		t.Fatal("expected error for zero-kind Bind")
 	}
 
@@ -183,7 +183,7 @@ func TestBindErrors(t *testing.T) {
 		ProvideProducer: func(Parser) (Producer, error) { return nil, nil },
 	}
 	pp := NewInProc("pl", rProducerOnly)
-	if _, err := pp.Bind(CONSUMER, "only-p", block); err == nil {
+	if _, err := pp.Bind(context.Background(), CONSUMER, "only-p", block); err == nil {
 		t.Fatal("expected error binding kind not in resource.Kinds")
 	}
 
@@ -196,7 +196,7 @@ func TestBindErrors(t *testing.T) {
 		// ProvideConsumer intentionally nil despite CONSUMER in Kinds.
 	}
 	pn := NewInProc("pl", rNilProvider)
-	if _, err := pn.Bind(CONSUMER, "nil-c", block); err == nil {
+	if _, err := pn.Bind(context.Background(), CONSUMER, "nil-c", block); err == nil {
 		t.Fatal("expected error when Provide* is nil")
 	}
 }
@@ -211,14 +211,14 @@ func TestBindProviderErrorPropagates(t *testing.T) {
 		},
 	}
 	p := NewInProc("pl", r)
-	if _, err := p.Bind(PRODUCER, "boom", &stubBlock{}); err == nil || !errors.Is(err, wantErr) {
+	if _, err := p.Bind(context.Background(), PRODUCER, "boom", &stubBlock{}); err == nil || !errors.Is(err, wantErr) {
 		t.Fatalf("Bind err = %v, want wrap of %v", err, wantErr)
 	}
 }
 
 func TestInstancePanicsOnWrongKind(t *testing.T) {
 	p := NewInProc("pl", newTestResource())
-	inst, err := p.Bind(PRODUCER, "widget", &stubBlock{data: []byte(`{"prefix":""}`)})
+	inst, err := p.Bind(context.Background(), PRODUCER, "widget", &stubBlock{data: []byte(`{"prefix":""}`)})
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestInstanceProducerContextCancellation(t *testing.T) {
 		},
 	}
 	p := NewInProc("pl", r)
-	inst, err := p.Bind(PRODUCER, "cancellable-producer", &stubBlock{})
+	inst, err := p.Bind(context.Background(), PRODUCER, "cancellable-producer", &stubBlock{})
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestInstanceConsumerContextCancellation(t *testing.T) {
 		},
 	}
 	p := NewInProc("pl", r)
-	inst, err := p.Bind(CONSUMER, "cancellable-consumer", &stubBlock{})
+	inst, err := p.Bind(context.Background(), CONSUMER, "cancellable-consumer", &stubBlock{})
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestInstanceTransformerContextCancellation(t *testing.T) {
 		},
 	}
 	p := NewInProc("pl", r)
-	inst, err := p.Bind(TRANSFORMER, "cancellable-transformer", &stubBlock{})
+	inst, err := p.Bind(context.Background(), TRANSFORMER, "cancellable-transformer", &stubBlock{})
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}

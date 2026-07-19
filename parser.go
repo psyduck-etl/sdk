@@ -11,6 +11,13 @@ type Parser func(dst any) error
 // configured Producer, Consumer, or Transformer.
 type Provider[T Producer | Consumer | Transformer] func(parse Parser) (T, error)
 
+// ProviderContext is a context-aware plugin author's factory: given a context
+// and a Parser it returns a configured Producer, Consumer, or Transformer.
+// This allows providers to perform cancellable setup work (e.g. database
+// schema bootstrap) at bind time. If set on a Resource, ProviderContext takes
+// precedence over Provider for backward-compatible fallback.
+type ProviderContext[T Producer | Consumer | Transformer] func(ctx context.Context, parse Parser) (T, error)
+
 // Producer emits data onto send. It reports errors on errs. It is
 // responsible for closing send when done producing.
 //

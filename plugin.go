@@ -21,8 +21,11 @@ type Plugin interface {
 	// Resources lists every resource this plugin offers, as metadata only.
 	Resources() []ResourceDescriptor
 	// Bind configures a resource of the given kind, using block for decoding
-	// resource-specific options. The returned Instance is ready to run.
-	Bind(kind Kind, resource string, block ConfigBlock) (Instance, error)
+	// resource-specific options. The returned Instance is ready to run. ctx is
+	// used for any cancellable setup work the provider performs at bind time
+	// (e.g. database schema bootstrap). Cancelling ctx will cause Bind to abort
+	// setup and return an error.
+	Bind(ctx context.Context, kind Kind, resource string, block ConfigBlock) (Instance, error)
 }
 
 // ResourceDescriptor is host-visible metadata about a resource. It carries
