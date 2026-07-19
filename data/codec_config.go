@@ -142,3 +142,11 @@ func (c *OutputCodec) Spec() []*sdk.Spec {
 		},
 	}
 }
+
+// IsTerminalRef reports whether spec names the "string" codec — the one that
+// carries bare scalar references (IDs, names) rather than structured objects.
+// Transformers branching on terminal vs structured data can use this to decide
+// whether to emit the full object or just its reference.
+func IsTerminalRef(spec string) bool {
+	return spec == "string"
+}
