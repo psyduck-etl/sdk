@@ -22,13 +22,14 @@ func ProduceFrom(ctx context.Context, next func() ([]byte, bool, error), send ch
 	}
 }
 
-// MapContext lifts a one-to-one mapping function onto the Transformer stage
-// contract: fn is applied to each input item and its output emitted
-// downstream. The fn receives the stage ctx, so per-record work (e.g. network IO)
-// is bound by the transformer's cancellation. Returning (nil, nil) emits nothing —
-// the item is filtered out. An error is reported on errs and the item dropped;
-// the stage keeps running. MapContext closes out on the way out and respects ctx
-// cancellation.
+// MapContext is a context-aware 1:1 transform: it lifts a one-to-one mapping
+// function onto the Transformer stage contract. fn is applied to each input
+// item and its output emitted downstream. The fn receives the stage ctx, so
+// per-record work (e.g. network IO or database queries) is bound by the
+// transformer's cancellation. Returning (nil, nil) emits nothing — the item
+// is filtered out. An error is reported on errs and the item dropped; the
+// stage keeps running. MapContext closes out on the way out and respects ctx
+// cancellation. See also Map for stateless transforms that don't need context.
 func MapContext(fn func(context.Context, []byte) ([]byte, error)) Transformer {
 	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
 		defer close(out)

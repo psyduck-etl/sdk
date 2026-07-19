@@ -8,10 +8,13 @@ import "context"
 type Parser func(dst any) error
 
 // Provider is a plugin author's factory: given a context and a Parser it
-// returns a configured Producer, Consumer, or Transformer. The context allows
-// providers to perform cancellable setup work (e.g. database schema bootstrap)
-// at bind time. Cancelling ctx will cause the provider to abort setup and
-// return an error.
+// returns a configured Producer, Consumer, or Transformer. The context is
+// for *bind time only* and allows providers to perform cancellable setup
+// work (e.g. database schema bootstrap, connection pooling, or table
+// validation) without blocking the host. This is distinct from the context
+// passed to Producer/Consumer/Transformer, which spans the entire stage's
+// lifetime. Cancelling the Provider context will cause setup to abort and
+// return an error; it does not affect the stage's own context.
 type Provider[T Producer | Consumer | Transformer] func(ctx context.Context, parse Parser) (T, error)
 
 // Producer emits data onto send. It reports errors on errs. It is
