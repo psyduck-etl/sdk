@@ -46,7 +46,7 @@ func newTestResource() *Resource {
 		Name:  "widget",
 		Kinds: PRODUCER | CONSUMER | TRANSFORMER,
 		Spec:  []*Spec{{Name: "prefix", Type: TypeString}},
-		ProvideProducer: func(parse Parser) (Producer, error) {
+		ProvideProducer: func(ctx context.Context, parse Parser) (Producer, error) {
 			cfg := &producerCfg{}
 			if err := parse(cfg); err != nil {
 				return nil, err
@@ -56,14 +56,14 @@ func newTestResource() *Resource {
 				close(send)
 			}, nil
 		},
-		ProvideConsumer: func(parse Parser) (Consumer, error) {
+		ProvideConsumer: func(ctx context.Context, parse Parser) (Consumer, error) {
 			return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 				for range recv {
 				}
 				done <- struct{}{}
 			}, nil
 		},
-		ProvideTransformer: func(parse Parser) (Transformer, error) {
+		ProvideTransformer: func(ctx context.Context, parse Parser) (Transformer, error) {
 			return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
 				defer close(out)
 				for data := range in {
@@ -180,7 +180,7 @@ func TestBindErrors(t *testing.T) {
 	rProducerOnly := &Resource{
 		Name:            "only-p",
 		Kinds:           PRODUCER,
-		ProvideProducer: func(Parser) (Producer, error) { return nil, nil },
+		ProvideProducer: func(ctx context.Context, parse Parser) (Producer, error) { return nil, nil },
 	}
 	pp := NewInProc("pl", rProducerOnly)
 	if _, err := pp.Bind(context.Background(), CONSUMER, "only-p", block); err == nil {
@@ -190,7 +190,7 @@ func TestBindErrors(t *testing.T) {
 	rNilProvider := &Resource{
 		Name:  "nil-c",
 		Kinds: PRODUCER | CONSUMER,
-		ProvideProducer: func(Parser) (Producer, error) {
+		ProvideProducer: func(ctx context.Context, parse Parser) (Producer, error) {
 			return func(ctx context.Context, send chan<- []byte, errs chan<- error) {}, nil
 		},
 		// ProvideConsumer intentionally nil despite CONSUMER in Kinds.
@@ -206,7 +206,7 @@ func TestBindProviderErrorPropagates(t *testing.T) {
 	r := &Resource{
 		Name:  "boom",
 		Kinds: PRODUCER,
-		ProvideProducer: func(Parser) (Producer, error) {
+		ProvideProducer: func(ctx context.Context, parse Parser) (Producer, error) {
 			return nil, wantErr
 		},
 	}
@@ -257,7 +257,7 @@ func TestInstanceProducerContextCancellation(t *testing.T) {
 	r := &Resource{
 		Name:  "cancellable-producer",
 		Kinds: PRODUCER,
-		ProvideProducer: func(Parser) (Producer, error) {
+		ProvideProducer: func(ctx context.Context, parse Parser) (Producer, error) {
 			return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 				defer close(send)
 				for i := 0; i < 1000; i++ {
@@ -302,7 +302,7 @@ func TestInstanceConsumerContextCancellation(t *testing.T) {
 	r := &Resource{
 		Name:  "cancellable-consumer",
 		Kinds: CONSUMER,
-		ProvideConsumer: func(Parser) (Consumer, error) {
+		ProvideConsumer: func(ctx context.Context, parse Parser) (Consumer, error) {
 			return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 				itemCount := 0
 				for {
@@ -361,7 +361,7 @@ func TestInstanceTransformerContextCancellation(t *testing.T) {
 	r := &Resource{
 		Name:  "cancellable-transformer",
 		Kinds: TRANSFORMER,
-		ProvideTransformer: func(Parser) (Transformer, error) {
+		ProvideTransformer: func(ctx context.Context, parse Parser) (Transformer, error) {
 			return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
 				defer close(out)
 				for {

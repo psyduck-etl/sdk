@@ -26,7 +26,7 @@ func testPlugin() sdk.Plugin {
 				{Name: "count", Type: sdk.TypeInt, Default: 1},
 				{Name: "fail-with", Type: sdk.TypeString},
 			},
-			ProvideProducer: func(parse sdk.Parser) (sdk.Producer, error) {
+			ProvideProducer: func(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 				cfg := struct {
 					Value    string `psy:"value"`
 					Count    int    `psy:"count"`
@@ -54,7 +54,7 @@ func testPlugin() sdk.Plugin {
 		&sdk.Resource{
 			Name:  "forever",
 			Kinds: sdk.PRODUCER,
-			ProvideProducer: func(parse sdk.Parser) (sdk.Producer, error) {
+			ProvideProducer: func(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 				return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 					defer close(send)
 					for {
@@ -72,7 +72,7 @@ func testPlugin() sdk.Plugin {
 			Name:  "collect",
 			Kinds: sdk.CONSUMER,
 			Spec:  []*sdk.Spec{{Name: "abort-on", Type: sdk.TypeString}},
-			ProvideConsumer: func(parse sdk.Parser) (sdk.Consumer, error) {
+			ProvideConsumer: func(ctx context.Context, parse sdk.Parser) (sdk.Consumer, error) {
 				cfg := struct {
 					AbortOn string `psy:"abort-on"`
 				}{}
@@ -110,7 +110,7 @@ func testPlugin() sdk.Plugin {
 			Name:  "suffix",
 			Kinds: sdk.TRANSFORMER,
 			Spec:  []*sdk.Spec{{Name: "suffix", Type: sdk.TypeString, Default: "!"}},
-			ProvideTransformer: func(parse sdk.Parser) (sdk.Transformer, error) {
+			ProvideTransformer: func(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 				cfg := struct {
 					Suffix string `psy:"suffix"`
 				}{}
@@ -136,7 +136,7 @@ func testPlugin() sdk.Plugin {
 			// crosses as the flush cue and a trailing emit still delivers.
 			Name:  "tally",
 			Kinds: sdk.TRANSFORMER,
-			ProvideTransformer: func(parse sdk.Parser) (sdk.Transformer, error) {
+			ProvideTransformer: func(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 				return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
 					defer close(out)
 					count := 0
