@@ -1,8 +1,6 @@
 package data
 
 import (
-	"strings"
-
 	"github.com/psyduck-etl/sdk"
 )
 
@@ -23,9 +21,9 @@ import (
 //	if err := config.Bind(); err != nil { return nil, err }
 //	// Now config.Decode(bytes) is ready to use
 //
-// The Accept field is resolved via sdk.GetCodec() at bind time. Spec strings
-// are normalized to lowercase, so config values like "JSON" (historical)
-// continue to work. The Decode method may return any decoded native type; wrap
+// The Accept field is resolved via sdk.GetCodec() at bind time; the spec is
+// passed through verbatim, so any normalization is up to the host's factory.
+// The Decode method may return any decoded native type; wrap
 // it with custom validation if needed (e.g., type-checking for objects).
 type InputCodec struct {
 	Accept string `psy:"accept"`
@@ -37,7 +35,7 @@ type InputCodec struct {
 // Returns an error if the codec name is unknown.
 func (c *InputCodec) Bind() error {
 	var err error
-	c.codec, err = sdk.GetCodec(strings.ToLower(c.Accept))
+	c.codec, err = sdk.GetCodec(c.Accept)
 	return err
 }
 
@@ -92,9 +90,9 @@ func (c *InputCodec) Spec() []*sdk.Spec {
 //	if err := config.Bind(); err != nil { return nil, err }
 //	// Now config.Encode(record) is ready to use
 //
-// The Emit field is resolved via sdk.GetCodec() at bind time. Spec strings
-// are normalized to lowercase, so config values like "JSON" (historical)
-// continue to work. The Encode method accepts any native type the codec
+// The Emit field is resolved via sdk.GetCodec() at bind time; the spec is
+// passed through verbatim, so any normalization is up to the host's factory.
+// The Encode method accepts any native type the codec
 // expects (usually map[string]any for structured codecs, string for terminals).
 type OutputCodec struct {
 	Emit  string `psy:"emit"`
@@ -106,7 +104,7 @@ type OutputCodec struct {
 // Returns an error if the codec name is unknown.
 func (c *OutputCodec) Bind() error {
 	var err error
-	c.codec, err = sdk.GetCodec(strings.ToLower(c.Emit))
+	c.codec, err = sdk.GetCodec(c.Emit)
 	return err
 }
 
