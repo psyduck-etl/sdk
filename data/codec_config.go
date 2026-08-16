@@ -47,6 +47,22 @@ func (c *InputCodec) Decode(data []byte) (any, error) {
 	return c.codec.Decode(data)
 }
 
+// DecodeValue decodes one record straight into the sdk's richer typed Value
+// representation, instead of the lossy native `any` that Decode produces.
+// Native flattens every decoded shape down to nil/bool/number/string/
+// []any/map[string]any, so a caller that wants to hand the result to
+// another Value-aware transformer (data.Walk, data.ByJQ, a codecTransformer
+// op, ...) would otherwise have to re-derive a Value from that native data.
+// DecodeValue skips that trip: it decodes bytes to a Value once, and the
+// concrete Kind (list vs object vs string vs bytes) is preserved exactly.
+//
+// DecodeValue resolves the Accept spec through the data package's own codec
+// chain (the same grammar as Decode/Encode) rather than through the bound
+// sdk.Codec, so — unlike Decode — it does not require Bind() first.
+func (c *InputCodec) DecodeValue(data []byte) (Value, error) {
+	return Decode(data, c.Accept)
+}
+
 // Sparse reports whether the Accept codec carries bare terminal references
 // (strings, scalars) rather than structured objects. True for "string" codec,
 // false for discrete codecs like json/yaml/csv.
@@ -113,6 +129,20 @@ func (c *OutputCodec) Bind() error {
 // terminals). Returns the codec's byte output.
 func (c *OutputCodec) Encode(v any) ([]byte, error) {
 	return c.codec.Encode(v)
+}
+
+// EncodeValue is the Value-typed counterpart to Encode: it renders a Value
+// straight to bytes via the Emit spec, without lowering it to native `any`
+// first. Pairing DecodeValue with EncodeValue lets a chain of Value-aware
+// operations (walk, transpose, jq, ...) pass a single Value between them and
+// hit the codec chain only at the two ends, instead of re-serializing to
+// native data (and back) at every step.
+//
+// EncodeValue resolves the Emit spec through the data package's own codec
+// chain rather than through the bound sdk.Codec, so — unlike Encode — it
+// does not require Bind() first.
+func (c *OutputCodec) EncodeValue(v Value) ([]byte, error) {
+	return Encode(v, c.Emit)
 }
 
 // Sparse reports whether the Emit codec carries bare terminal references

@@ -97,6 +97,40 @@ func (c *consumer) consume(record []byte) error {
 }
 ```
 
+## Exchanging `data.Value` Instead of `any`
+
+`.Decode()` returns native Go data (`any`) — usually `map[string]any`,
+`[]any`, or a scalar. That is convenient for one-off shape checks, but it is
+a lossy stop: the concrete `data.Value` `Kind` (list vs object vs bytes vs
+string) is flattened away, and if the result is headed for another
+Value-aware operation (`data.Walk`, `data.ByJQ`, `data.Transpose`, a
+`codecTransformer` op, ...) that operation has to re-derive a `Value` from
+the native data before it can do anything.
+
+`InputCodec.DecodeValue()` and `OutputCodec.EncodeValue()` decode/encode
+straight to/from `data.Value`, so a chain of Value-aware steps only touches
+the byte codec at its two ends:
+
+```go
+func (c *transformer) run(record []byte) ([]byte, error) {
+	v, err := c.config.DecodeValue(record) // record -> data.Value
+	if err != nil {
+		return nil, err
+	}
+
+	out, ok, err := data.Walk(v, data.Path{"user", "name"})
+	if err != nil || !ok {
+		return nil, err
+	}
+
+	return c.config.EncodeValue(out) // data.Value -> bytes
+}
+```
+
+`DecodeValue`/`EncodeValue` resolve the `Accept`/`Emit` spec through the
+`data` package's own codec chain directly, so — unlike `Decode`/`Encode` —
+they do not require `.Bind()` first.
+
 ## Detecting Terminal References
 
 The `.Sparse()` method (or `sdk.data.IsTerminalRef()` helper) detects bare scalar references:
@@ -216,18 +250,27 @@ type TransformerConfig struct {
 }
 ```
 
-### Bidirectional with composite
+### Bidirectional
 ```go
 type BidirectionalConfig struct {
 	Field string `psy:"field"`
-	data.CodecConfig  // Includes both acceptConfig + emitConfig
+	acceptConfig  // Input
+	emitConfig    // Output
 }
 
-// In provider:
-if err := config.CodecConfig.Bind(); err != nil {  // Binds both
+// In provider, bind both:
+if err := config.acceptConfig.Bind(); err != nil {
+	return nil, err
+}
+if err := config.emitConfig.Bind(); err != nil {
 	return nil, err
 }
 ```
+
+(There is no bundled composite type for this today — embed both
+`acceptConfig`/`emitConfig` and bind each. `DecodeValue`/`EncodeValue`
+don't need `Bind()` at all, so a Value-only transformer can skip binding
+entirely.)
 
 ## Migration Checklist
 
