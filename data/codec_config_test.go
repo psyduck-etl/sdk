@@ -78,6 +78,33 @@ func TestCodecValueRoundTripSkipsNative(t *testing.T) {
 	}
 }
 
+func TestInputCodecSparse(t *testing.T) {
+	if (&InputCodec{Accept: "string"}).Sparse() != true {
+		t.Errorf("want Sparse() true for Accept=%q", "string")
+	}
+	if (&InputCodec{Accept: "json"}).Sparse() != false {
+		t.Errorf("want Sparse() false for Accept=%q", "json")
+	}
+}
+
+func TestOutputCodecSparse(t *testing.T) {
+	if (&OutputCodec{Emit: "string"}).Sparse() != true {
+		t.Errorf("want Sparse() true for Emit=%q", "string")
+	}
+	if (&OutputCodec{Emit: "json"}).Sparse() != false {
+		t.Errorf("want Sparse() false for Emit=%q", "json")
+	}
+}
+
+func TestIsTerminalRef(t *testing.T) {
+	if IsTerminalRef("string") != true {
+		t.Errorf("want IsTerminalRef(%q) true", "string")
+	}
+	if IsTerminalRef("json") != false {
+		t.Errorf("want IsTerminalRef(%q) false", "json")
+	}
+}
+
 func TestInputCodecDecodeVsDecodeValue(t *testing.T) {
 	c := &InputCodec{Accept: "json"}
 	if err := c.Bind(); err != nil {
