@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// Chain's multi-pattern branch (len(ps) >= 2) was never exercised by any
-// test: Decode/Encode in codec.go call codec.decode/codec.encode directly
-// rather than going through Chain, so this closure's error path was NOT
-// COVERED.
+// Decode/Encode in codec.go call codec.decode/codec.encode directly rather
+// than going through Chain, so exercise Chain's multi-pattern branch here.
 func TestChainMultiPatternError(t *testing.T) {
 	upper := func(b []byte) ([]byte, error) { return bytes.ToUpper(b), nil }
 	failing := func(b []byte) ([]byte, error) { return nil, fmt.Errorf("boom") }
@@ -32,9 +30,9 @@ func TestChainMultiPatternError(t *testing.T) {
 }
 
 // Registry.Decode/Encode are the public "give me a closure" surface for
-// plugin authors that build a Pattern directly from a spec string — nothing
+// plugin authors that build a Pattern directly from a spec string; nothing
 // in the SDK's own code calls them (Decode/Encode in codec.go walk
-// Patterns.codecs by hand instead), so they had zero coverage.
+// Patterns.codecs by hand instead).
 func TestRegistryDecodeEncodeChain(t *testing.T) {
 	dec, err := Patterns.Decode("base64|hex")
 	if err != nil {

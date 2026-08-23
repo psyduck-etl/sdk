@@ -7,11 +7,8 @@ import (
 
 // ── Get() boundaries ─────────────────────────────────────────────────────
 //
-// Bytes.Get and Runes.Get had no direct test at all before this file (only
-// Str.Get and, indirectly through Walk, List.Get were exercised, and even
-// those only at non-boundary indices). Each Get is `n < 0 || n >= len(x)`;
-// n == 0 and n == len(x) are the exact inputs that distinguish that from a
-// weakened `<=`/`>` boundary mutant.
+// Each Get is `n < 0 || n >= len(x)`; exercise n == 0 and n == len(x)
+// alongside the interior and out-of-range cases.
 
 func TestBytesGetBoundaries(t *testing.T) {
 	b := Bytes("abc")
@@ -81,9 +78,8 @@ func TestListGetBoundaries(t *testing.T) {
 
 // ── By() ──────────────────────────────────────────────────────────────────
 //
-// applyBy's error check (`if err != nil`) was NOT COVERED: nothing called
-// .By on any Continuous type. Exercise both the success and failure path
-// across all four concrete types.
+// Exercise both the success and failure path across all four concrete
+// Continuous types.
 
 var errByPattern = errors.New("pattern failed")
 

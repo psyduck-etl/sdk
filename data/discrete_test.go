@@ -2,10 +2,9 @@ package data
 
 import "testing"
 
-// Transpose's `i < len(dsts)` guard (discrete.go:79) had no test where srcs
-// outnumber dsts, so the CONDITIONALS_BOUNDARY mutant (< -> <=) survived:
-// with more resolved srcs than dsts, index i eventually reaches len(dsts),
-// where the guard must skip the write rather than index out of dsts.
+// With more resolved srcs than dsts, index i eventually reaches len(dsts),
+// where Transpose's `i < len(dsts)` guard must skip the write rather than
+// index out of dsts.
 func TestTransposeMoreSrcsThanDsts(t *testing.T) {
 	v, _ := Decode([]byte(`{"a":"1","b":"2","c":"3"}`), "json")
 	out, missing := Transpose(v,

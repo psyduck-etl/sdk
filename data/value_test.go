@@ -2,8 +2,7 @@ package data
 
 import "testing"
 
-// Kind.Continuous() was never called by any test, so both of its `!=`
-// comparisons were NOT COVERED.
+// Table test for Kind.Continuous() across every Kind value.
 func TestKindContinuous(t *testing.T) {
 	want := map[Kind]bool{
 		KindBytes:  true,

@@ -5,11 +5,8 @@ import "testing"
 // ── normSlice exact-bound cases ─────────────────────────────────────────
 //
 // TestBytesSlice (data_test.go) covers the interior and overflow cases;
-// these fill in the exact-bound edges (lo/hi landing precisely on 0 or n)
-// that gremlins flagged as LIVED CONDITIONALS_BOUNDARY mutants (< vs <=,
-// > vs >=) in normSlice. At an exact bound the clamped value doesn't
-// change, but trunc must still come out false, which is what distinguishes
-// the mutants.
+// these cover the exact-bound edges (lo/hi landing precisely on 0 or n),
+// where the clamped value doesn't change but trunc must still be false.
 
 func TestSliceStartAtZero(t *testing.T) {
 	b := Bytes("abcde")
@@ -104,16 +101,15 @@ func TestEverySizeZeroDefaultsToOne(t *testing.T) {
 	}
 }
 
-// Mutants deliberately left alive (equivalent, not test gaps):
+// The following edge cases are deliberately not distinguished by tests
+// because the alternate behavior is unobservable:
 //
 //   - normSlice's `hi < lo` guard (slice.go:30): at the only distinguishing
 //     input, hi == lo, the guarded assignment `hi = lo` is a no-op either
-//     way, so no observation can tell `<` from `<=` apart there.
+//     way.
 //   - Slice's `step <= 1` fast path (slice.go:41): for step == 1 the
 //     windowed loop and the `s[lo:hi:hi]` fast path produce the same
-//     elements in the same order, so weakening the guard to `step < 1`
-//     doesn't change any observable output for that input.
+//     elements in the same order.
 //   - The `make(S, 0, ...)` capacity hints in Slice and Chunk (slice.go:44,
-//     57): these only pre-size an append target; append grows the backing
-//     array as needed, so mutating the capacity arithmetic changes no
-//     observable result, only how many times append reallocates.
+//     57) only pre-size an append target; append grows the backing array
+//     as needed regardless.

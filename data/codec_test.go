@@ -3,11 +3,6 @@ package data
 import "testing"
 
 // ── csv ──────────────────────────────────────────────────────────────────
-//
-// decodeCSV/encodeCSV had no direct coverage at all before this file: the
-// round-trip table in data_test.go never exercises the "csv" spec, so
-// mutation testing flagged every conditional and the FieldsPerRecord setting
-// in both functions as either NOT COVERED or (once covered) surviving.
 
 func TestDecodeCSVSingleRecord(t *testing.T) {
 	// A single record decodes to a flat List of fields, not a List of one
@@ -43,8 +38,7 @@ func TestDecodeCSVMultiRecord(t *testing.T) {
 
 func TestDecodeCSVRaggedRows(t *testing.T) {
 	// decodeCSV sets FieldsPerRecord = -1 deliberately: rows are allowed to
-	// have different field counts. Forcing that to 0 or 1 (arithmetic/sign
-	// mutants) would reject this input.
+	// have different field counts.
 	v, err := Decode([]byte("a,b,c\nd,e\n"), "csv")
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
@@ -106,9 +100,6 @@ func TestEncodeCSVRequiresList(t *testing.T) {
 // ── json-pretty ──────────────────────────────────────────────────────────
 
 func TestEncodeJSONPretty(t *testing.T) {
-	// terminalEncode's "json-pretty" branch had no test at all: the error
-	// check on enc.Encode was NOT COVERED because nothing exercised the
-	// success path either.
 	v, err := Decode([]byte(`{"a":1}`), "json")
 	if err != nil {
 		t.Fatalf("seed Decode: %v", err)
@@ -130,15 +121,12 @@ func TestEncodeJSONPretty(t *testing.T) {
 
 func TestDecodeASCIIAcceptsDEL(t *testing.T) {
 	// 127 (DEL) is the top of the 7-bit ASCII range and must be accepted,
-	// not just bytes strictly below it — closes the c > 127 vs c >= 127
-	// boundary gap in decodeASCII.
+	// not just bytes strictly below it.
 	if _, err := Decode([]byte{'a', 127}, "ascii"); err != nil {
 		t.Errorf("ascii should accept byte 127 (DEL): %v", err)
 	}
 }
 
-// Note on codec.go:138 (Encode's `n > 0 && isTerminal(...)` guard): gremlins
-// still reports the n > 0 -> n >= 0 boundary mutant as LIVED after the above.
-// It's equivalent, not a gap: splitSpec never returns an empty slice (it
-// falls back to []string{"bytes"}), so n is always >= 1 and the n == 0 arm
-// the mutant would newly enter is unreachable from any caller.
+// codec.go's Encode has an `n > 0 && isTerminal(...)` guard; splitSpec never
+// returns an empty slice (it falls back to []string{"bytes"}), so n is
+// always >= 1 and the n == 0 case is unreachable from any caller.

@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// onerror.go had no test coverage at all before this file: OnError,
-// ParseOnError, Handle, String, and WrapHandlerErr were never called from
-// any test.
-
 func TestParseOnErrorDefaultsToRaise(t *testing.T) {
 	h, err := ParseOnError("")
 	if err != nil {
